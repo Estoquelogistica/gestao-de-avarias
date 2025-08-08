@@ -1,0 +1,27 @@
+# Composer - Dependências do projeto principal
+/vendor/
+
+# Bibliotecas instaladas manualmente
+# A pasta 'lib' contém o dompdf, que idealmente deveria ser gerenciado pelo composer.json principal.
+/lib/
+
+# Pasta para uploads temporários de arquivos
+/uploads/
+
+# Arquivo de configuração com dados sensíveis (senhas de banco de dados)
+# É uma boa prática criar um arquivo 'config/db.php.example' como modelo.
+config/db.php
+
+# Arquivos de log
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos gerados pelo Sistema Operacional
+.DS_Store
+Thumbs.db
+
+# Arquivos de configuração de IDEs
+.idea/
+.vscode/
