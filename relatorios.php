@@ -69,6 +69,137 @@ $dados_grafico_motivos = array_column($dados_motivos, 'total_ocorrencias');
 $labels_grafico_motivos_json = json_encode($labels_grafico_motivos);
 $dados_grafico_motivos_json = json_encode($dados_grafico_motivos);
 
+// --- Lógica para o Relatório de Performance por Rua (Setor) ---
+$sql_ruas = "SELECT
+                CASE
+                    WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'A' THEN '01'
+                    WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'B' THEN '02'
+                    WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'C' THEN '03'
+                    WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'D' THEN '04'
+                    WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'E' THEN '05'
+                    WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'F' THEN '06'
+                    WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'G' THEN '07'
+                    WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'H' THEN '08'
+                    WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'I' THEN '09'
+                    WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'K' THEN '11'
+                    ELSE SUBSTRING(p.endereco, 1, 2)
+                END as rua,
+                COUNT(a.id) as total_ocorrencias,
+                SUM(a.quantidade) as quantidade_total
+            FROM avarias a
+            LEFT JOIN produtos p ON a.produto_id = p.id
+            {$where_sql} AND p.endereco IS NOT NULL AND p.endereco != ''
+            GROUP BY rua
+            ORDER BY quantidade_total DESC";
+$stmt_ruas = $conn->prepare($sql_ruas);
+$stmt_ruas->bind_param($types, ...$params);
+$stmt_ruas->execute();
+$result_ruas = $stmt_ruas->get_result();
+$dados_ruas = $result_ruas->fetch_all(MYSQLI_ASSOC);
+$stmt_ruas->close();
+
+// --- Preparar dados para o gráfico de Ruas ---
+$labels_grafico_ruas = [];
+$dados_grafico_ruas_quantidade = [];
+$total_geral_ruas = 0;
+foreach ($dados_ruas as $rua) {
+    $labels_grafico_ruas[] = 'Rua ' . $rua['rua'];
+    $quantidade = (int)$rua['quantidade_total'];
+    $dados_grafico_ruas_quantidade[] = $quantidade;
+    $total_geral_ruas += $quantidade;
+}
+$labels_grafico_ruas_json = json_encode($labels_grafico_ruas);
+$dados_grafico_ruas_quantidade_json = json_encode($dados_grafico_ruas_quantidade);
+
+// --- Lógica para o Relatório de Tendência por Produto ---
+$produto_id_tendencia = isset($_GET['produto_id_tendencia']) ? (int)$_GET['produto_id_tendencia'] : 0;
+$agrupamento_tendencia = $_GET['tendencia_agrupamento'] ?? 'mes'; // 'dia', 'mes', 'ano'
+$produto_tendencia_nome = '';
+$labels_grafico_tendencia_json = '[]';
+$dados_grafico_tendencia_json = '[]';
+
+if ($produto_id_tendencia > 0) {
+    // 1. Buscar nome do produto para o título
+    $stmt_nome_tendencia = $conn->prepare("SELECT descricao FROM produtos WHERE id = ?");
+    $stmt_nome_tendencia->bind_param("i", $produto_id_tendencia);
+    $stmt_nome_tendencia->execute();
+    $result_nome_tendencia = $stmt_nome_tendencia->get_result();
+    if ($row_nome_tendencia = $result_nome_tendencia->fetch_assoc()) {
+        $produto_tendencia_nome = $row_nome_tendencia['descricao'];
+    }
+    $stmt_nome_tendencia->close();
+
+    // 2. Buscar dados da tendência (agrupados por dia, mês ou ano)
+    $where_tendencia_sql = $where_sql . " AND a.produto_id = ?";
+    $params_tendencia = array_merge($params, [$produto_id_tendencia]);
+    $types_tendencia = $types . 'i';
+
+    // Define os campos e agrupamentos da query com base na seleção do usuário
+    $select_fields = '';
+    $group_by_sql = '';
+    $order_by_sql = '';
+
+    switch ($agrupamento_tendencia) {
+        case 'dia':
+            $select_fields = "DATE(a.data_ocorrencia) as data_agrupada, SUM(a.quantidade) as quantidade_total";
+            $group_by_sql = "GROUP BY data_agrupada";
+            $order_by_sql = "ORDER BY data_agrupada ASC";
+            break;
+        case 'ano':
+            $select_fields = "YEAR(a.data_ocorrencia) as ano, SUM(a.quantidade) as quantidade_total";
+            $group_by_sql = "GROUP BY ano";
+            $order_by_sql = "ORDER BY ano ASC";
+            break;
+        case 'mes':
+        default:
+            $select_fields = "YEAR(a.data_ocorrencia) as ano, MONTH(a.data_ocorrencia) as mes, SUM(a.quantidade) as quantidade_total";
+            $group_by_sql = "GROUP BY ano, mes";
+            $order_by_sql = "ORDER BY ano, mes ASC";
+            break;
+    }
+
+    $sql_tendencia = "SELECT {$select_fields}
+                      FROM avarias a
+                      {$where_tendencia_sql}
+                      {$group_by_sql} {$order_by_sql}";
+    
+    $stmt_tendencia = $conn->prepare($sql_tendencia);
+    $stmt_tendencia->bind_param($types_tendencia, ...$params_tendencia);
+    $stmt_tendencia->execute();
+    $result_tendencia = $stmt_tendencia->get_result();
+    $dados_tendencia_raw = $result_tendencia->fetch_all(MYSQLI_ASSOC);
+    $stmt_tendencia->close();
+
+    // 3. Preparar dados para o gráfico, formatando os rótulos de acordo com o agrupamento
+    $labels_grafico_tendencia = [];
+    $dados_grafico_tendencia = [];
+
+    switch ($agrupamento_tendencia) {
+        case 'dia':
+            foreach ($dados_tendencia_raw as $row) {
+                $labels_grafico_tendencia[] = date('d/m/y', strtotime($row['data_agrupada']));
+                $dados_grafico_tendencia[] = (int)$row['quantidade_total'];
+            }
+            break;
+        case 'ano':
+            foreach ($dados_tendencia_raw as $row) {
+                $labels_grafico_tendencia[] = $row['ano'];
+                $dados_grafico_tendencia[] = (int)$row['quantidade_total'];
+            }
+            break;
+        case 'mes':
+        default:
+            $meses_nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+            foreach ($dados_tendencia_raw as $row) {
+                $labels_grafico_tendencia[] = $meses_nomes[$row['mes'] - 1] . '/' . substr($row['ano'], -2);
+                $dados_grafico_tendencia[] = (int)$row['quantidade_total'];
+            }
+            break;
+    }
+    
+    $labels_grafico_tendencia_json = json_encode($labels_grafico_tendencia);
+    $dados_grafico_tendencia_json = json_encode($dados_grafico_tendencia);
+}
 ?>
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -108,6 +239,13 @@ $dados_grafico_motivos_json = json_encode($dados_grafico_motivos);
     .text-danger { color: #dc3545 !important; }
     .text-success { color: #198754 !important; }
     .percent-text { font-size: 1.1rem; }
+    .position-absolute {
+        position: absolute !important;
+    }
+    #search-results-tendencia.list-group {
+        display: none; /* Escondido por padrão */
+        max-height: 300px; overflow-y: auto;
+    }
   </style>
 </head>
 <body>
@@ -133,6 +271,26 @@ $dados_grafico_motivos_json = json_encode($dados_grafico_motivos);
     <header class="main-header">
         <h1 id="pageTitle" class="h2">Relatórios</h1>
     </header>
+
+    <!-- Seção de Seleção de Relatórios -->
+    <div class="content-section">
+        <h3 class="mb-3">Visualizar Relatórios</h3>
+        <div id="report-selector" class="d-flex flex-wrap gap-3">
+            <div class="form-check form-switch">
+                <input class="form-check-input report-toggle-checkbox" type="checkbox" role="switch" id="toggle-geral" data-target="#report-geral" checked>
+                <label class="form-check-label" for="toggle-geral">Análise Geral (Motivos e Tipos)</label>
+            </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input report-toggle-checkbox" type="checkbox" role="switch" id="toggle-ruas" data-target="#report-ruas" checked>
+                <label class="form-check-label" for="toggle-ruas">Performance por Rua</label>
+            </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input report-toggle-checkbox" type="checkbox" role="switch" id="toggle-tendencia" data-target="#report-tendencia" checked>
+                <label class="form-check-label" for="toggle-tendencia">Tendência por Produto</label>
+            </div>
+            <!-- Adicione novos checkboxes para futuros relatórios aqui -->
+        </div>
+    </div>
 
     <!-- Seção de Filtros -->
     <div class="content-section">
@@ -167,7 +325,7 @@ $dados_grafico_motivos_json = json_encode($dados_grafico_motivos);
     </div>
 
     <!-- Seção para o primeiro relatório -->
-    <div class="row">
+    <div class="row" id="report-geral">
         <div class="col-md-7">
             <div class="content-section">
                 <h3>Percentual por Motivo</h3>
@@ -229,9 +387,54 @@ $dados_grafico_motivos_json = json_encode($dados_grafico_motivos);
     </div>
 
     <!-- Adicione mais seções de relatórios aqui -->
-    <div class="content-section">
-        <h3>Outro Relatório</h3>
-        <p class="text-muted">Este é um espaço para um futuro relatório.</p>
+    <div class="content-section mt-4" id="report-ruas">
+        <h3>Performance por Rua (Setor)</h3>
+        <p class="text-muted">Gráfico de barras mostrando as ruas do depósito com maior volume de itens perdidos.</p>
+        <?php if (!empty($dados_ruas)): ?>
+            <div style="position: relative; height: 450px; width: 100%;">
+                <canvas id="graficoRuas"></canvas>
+            </div>
+        <?php else: ?>
+            <p class="text-muted mt-3">Nenhum dado de endereço encontrado para o período e filtros selecionados.</p>
+        <?php endif; ?>
+    </div>
+
+    <!-- Relatório de Tendência por Produto -->
+    <div class="content-section mt-4" id="report-tendencia">
+        <h3>Relatório de Tendência por Produto</h3>
+        <p class="text-muted">Selecione um produto para visualizar a tendência de registros ao longo do tempo, de acordo com os filtros gerais.</p>
+        
+        <!-- Formulário de Busca -->
+        <div class="row align-items-end">
+            <div class="col-md-8 mb-3 position-relative">
+                <label for="produto_tendencia_search" class="form-label">Buscar Produto</label>
+                <input type="text" class="form-control" id="produto_tendencia_search" placeholder="Digite o código, descrição ou referência do produto..." value="<?php echo htmlspecialchars($produto_tendencia_nome); ?>">
+                <div id="search-results-tendencia" class="list-group position-absolute" style="z-index: 1000; width: calc(100% - 1rem);"></div>
+            </div>
+        </div>
+
+        <!-- Área do Gráfico -->
+        <?php if ($produto_id_tendencia > 0): ?>
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap">
+                <h4 class="mt-3 mb-0">Tendência para: <span class="text-primary"><?php echo htmlspecialchars($produto_tendencia_nome); ?></span></h4>
+                <?php
+                    // Constrói a URL base para os botões de agrupamento, mantendo os filtros atuais
+                    $query_params_tendencia = $_GET;
+                    unset($query_params_tendencia['tendencia_agrupamento']);
+                    $base_url_tendencia = 'relatorios.php?' . http_build_query($query_params_tendencia);
+                ?>
+                <div class="btn-group" role="group">
+                    <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=dia'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'dia') echo 'active'; ?>">Dia</a>
+                    <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=mes'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'mes') echo 'active'; ?>">Mês</a>
+                    <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=ano'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'ano') echo 'active'; ?>">Ano</a>
+                </div>
+            </div>
+            <div style="position: relative; height: 350px; width: 100%;">
+                <canvas id="graficoTendencia"></canvas>
+            </div>
+        <?php else: ?>
+            <div class="alert alert-info mt-3"><i class="fas fa-search me-2"></i>Use o campo de busca acima para selecionar um produto e visualizar seu histórico.</div>
+        <?php endif; ?>
     </div>
 
   </div>
@@ -314,6 +517,161 @@ $dados_grafico_motivos_json = json_encode($dados_grafico_motivos);
                 }
             });
         }
+
+        // Gráfico de Performance por Rua
+        const ctxRuas = document.getElementById('graficoRuas')?.getContext('2d');
+        if (ctxRuas) {
+            new Chart(ctxRuas, {
+                type: 'bar',
+                data: {
+                    labels: <?php echo $labels_grafico_ruas_json; ?>,
+                    datasets: [{
+                        label: 'Quantidade Total Perdida',
+                        data: <?php echo $dados_grafico_ruas_quantidade_json; ?>,
+                        backgroundColor: 'rgba(220, 53, 69, 0.7)', // Vermelho do Bootstrap
+                        borderColor: 'rgba(220, 53, 69, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // Torna o gráfico de barras horizontal
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { beginAtZero: true, title: { display: true, text: 'Quantidade Total de Itens' } }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        datalabels: {
+                            formatter: (value, ctx) => {
+                                if (value <= 0) return null;
+                                const totalGeral = <?php echo $total_geral_ruas; ?>;
+                                if (totalGeral === 0) return value;
+                                const percentage = (value / totalGeral) * 100;
+                                // Retorna o valor e a porcentagem formatada (ex: 150 (25,5%))
+                                return `${value} (${percentage.toFixed(1).replace('.', ',')}%)`;
+                            },
+                            color: '#000',
+                            anchor: 'end',
+                            align: 'end',
+                            font: { weight: 'bold' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- LÓGICA PARA O RELATÓRIO DE TENDÊNCIA ---
+        const searchInputTendencia = document.getElementById('produto_tendencia_search');
+        const searchResultsTendencia = document.getElementById('search-results-tendencia');
+        let searchTimeoutTendencia;
+
+        if (searchInputTendencia) {
+            searchInputTendencia.addEventListener('keyup', () => {
+                clearTimeout(searchTimeoutTendencia);
+                const searchTerm = searchInputTendencia.value.trim();
+                if (searchTerm.length < 2) {
+                    searchResultsTendencia.innerHTML = '';
+                    searchResultsTendencia.style.display = 'none';
+                    return;
+                }
+                searchTimeoutTendencia = setTimeout(async () => {
+                    try {
+                        const response = await fetch(`api_search_products.php?term=${encodeURIComponent(searchTerm)}`);
+                        const products = await response.json();
+                        
+                        searchResultsTendencia.innerHTML = '';
+                        if (products.length > 0) {
+                            products.forEach(product => {
+                                const item = document.createElement('a');
+                                item.href = '#';
+                                item.classList.add('list-group-item', 'list-group-item-action');
+                                item.innerHTML = `<strong>${product.codigo_produto}</strong> - ${product.descricao}`;
+                                item.dataset.productId = product.id;
+                                searchResultsTendencia.appendChild(item);
+                            });
+                            searchResultsTendencia.style.display = 'block';
+                        } else {
+                            searchResultsTendencia.innerHTML = '<span class="list-group-item">Nenhum produto encontrado.</span>';
+                            searchResultsTendencia.style.display = 'block';
+                        }
+                    } catch (error) {
+                        console.error('Erro na busca de tendência:', error);
+                        searchResultsTendencia.innerHTML = '<span class="list-group-item text-danger">Erro ao buscar.</span>';
+                        searchResultsTendencia.style.display = 'block';
+                    }
+                }, 300);
+            });
+
+            searchResultsTendencia.addEventListener('click', (e) => {
+                e.preventDefault();
+                const target = e.target.closest('a');
+                if (target && target.dataset.productId) {
+                    const productId = target.dataset.productId;
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('produto_id_tendencia', productId);
+                    window.location.href = url.toString();
+                }
+            });
+
+            // Esconde a lista de resultados se clicar fora
+            document.addEventListener('click', function(event) {
+                if (!searchInputTendencia.contains(event.target)) {
+                    searchResultsTendencia.style.display = 'none';
+                }
+            });
+        }
+
+        // Gráfico de Tendência
+        const ctxTendencia = document.getElementById('graficoTendencia')?.getContext('2d');
+        if (ctxTendencia) {
+            new Chart(ctxTendencia, {
+                type: 'line',
+                data: {
+                    labels: <?php echo $labels_grafico_tendencia_json; ?>,
+                    datasets: [{
+                        label: 'Quantidade Total',
+                        data: <?php echo $dados_grafico_tendencia_json; ?>,
+                        fill: true,
+                        backgroundColor: 'rgba(37, 76, 144, 0.2)',
+                        borderColor: 'rgba(37, 76, 144, 1)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, title: { display: true, text: 'Quantidade Registrada' } } },
+                    plugins: { legend: { display: false }, datalabels: { display: false } }
+                }
+            });
+        }
+
+        // --- LÓGICA PARA SELEÇÃO DE RELATÓRIOS ---
+        const reportCheckboxes = document.querySelectorAll('.report-toggle-checkbox');
+
+        function toggleReportVisibility(checkbox) {
+            const targetId = checkbox.dataset.target;
+            const reportElement = document.querySelector(targetId);
+            if (reportElement) {
+                reportElement.style.display = checkbox.checked ? '' : 'none';
+            }
+        }
+
+        reportCheckboxes.forEach(checkbox => {
+            // Ao carregar, verifica o estado salvo no localStorage
+            const savedState = localStorage.getItem(checkbox.id);
+            if (savedState === 'false') {
+                checkbox.checked = false;
+            }
+            toggleReportVisibility(checkbox); // Aplica o estado inicial
+
+            // Adiciona o evento de mudança
+            checkbox.addEventListener('change', () => {
+                localStorage.setItem(checkbox.id, checkbox.checked);
+                toggleReportVisibility(checkbox);
+            });
+        });
 
         // --- LÓGICA PARA ATUALIZAÇÃO AUTOMÁTICA DOS FILTROS ---
         const formFiltros = document.getElementById('form-relatorios-filtros');
