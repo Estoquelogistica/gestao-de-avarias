@@ -253,6 +253,23 @@ if ($produto_id_tendencia > 0) {
         display: none; /* Escondido por padrão */
         max-height: 300px; overflow-y: auto;
     }
+    .chart-container {
+        position: relative;
+    }
+    /* Ajuste para o botão de cópia não sobrepor o título */
+    .report-header {
+        position: relative;
+        padding-right: 40px; /* Espaço para o botão */
+    }
+    .btn-copy-report {
+        position: absolute; top: 0; right: 0;
+    }
+    .btn-copy-chart {
+        position: absolute; top: -5px; right: 0; z-index: 10;
+    }
+    .copy-feedback {
+        position: absolute; top: 0px; right: 45px; z-index: 10; display: none; background-color: #28a745; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8em;
+    }
   </style>
 </head>
 <body>
@@ -334,8 +351,12 @@ if ($produto_id_tendencia > 0) {
     <!-- Seção para o primeiro relatório -->
     <div class="row" id="report-geral">
         <div class="col-md-7">
-            <div class="content-section">
-                <h3>Percentual por Motivo</h3>
+            <div class="content-section" id="report-container-motivos">
+                <div class="report-header">
+                    <h3>Percentual por Motivo</h3>
+                    <button class="btn btn-sm btn-outline-secondary btn-copy-report" data-container-id="report-container-motivos" data-feedback-id="feedback-motivos" title="Copiar relatório como imagem"><i class="fas fa-camera"></i></button>
+                    <span class="copy-feedback" id="feedback-motivos">Copiado!</span>
+                </div>
                 <?php if (!empty($dados_motivos)): ?>
                     <div class="row align-items-center gx-5">
                         <div class="col-lg-6" style="min-height: 300px;">
@@ -368,8 +389,12 @@ if ($produto_id_tendencia > 0) {
             </div>
         </div>
         <div class="col-md-5">
-            <div class="content-section h-100">
-                <h3>Percentual por Tipo (Avaria/Uso e Consumo)</h3>
+            <div class="content-section h-100" id="report-container-percentual">
+                <div class="report-header">
+                    <h3>Percentual por Tipo</h3>
+                    <button class="btn btn-sm btn-outline-secondary btn-copy-report" data-container-id="report-container-percentual" data-feedback-id="feedback-percentual" title="Copiar relatório como imagem"><i class="fas fa-camera"></i></button>
+                    <span class="copy-feedback" id="feedback-percentual">Copiado!</span>
+                </div>
                 <?php if ($total_registros > 0): ?>
                     <div class="row align-items-center h-100">
                         <div class="col-lg-6" style="min-height: 250px;">
@@ -395,10 +420,14 @@ if ($produto_id_tendencia > 0) {
 
     <!-- Adicione mais seções de relatórios aqui -->
     <div class="content-section mt-4" id="report-ruas">
-        <h3>Performance por Rua (Avaria vs. Consumo)</h3>
+        <div class="report-header">
+            <h3>Performance por Rua (Avaria vs. Consumo)</h3>
+            <button class="btn btn-sm btn-outline-secondary btn-copy-report" data-container-id="report-ruas" data-feedback-id="feedback-ruas" title="Copiar relatório como imagem"><i class="fas fa-camera"></i></button>
+            <span class="copy-feedback" id="feedback-ruas">Copiado!</span>
+        </div>
         <p class="text-muted">Gráfico de barras empilhadas mostrando o volume de itens por tipo em cada setor do depósito.</p>
         <?php if (!empty($dados_ruas)): ?>
-            <div style="position: relative; height: 450px; width: 100%;">
+            <div style="height: 450px; width: 100%;">
                 <canvas id="graficoRuas"></canvas>
             </div>
         <?php else: ?>
@@ -408,7 +437,11 @@ if ($produto_id_tendencia > 0) {
 
     <!-- Relatório de Tendência por Produto -->
     <div class="content-section mt-4" id="report-tendencia">
-        <h3>Relatório de Tendência por Produto</h3>
+        <div class="report-header">
+            <h3>Relatório de Tendência por Produto</h3>
+            <button class="btn btn-sm btn-outline-secondary btn-copy-report" data-container-id="report-tendencia" data-feedback-id="feedback-tendencia" title="Copiar relatório como imagem"><i class="fas fa-camera"></i></button>
+            <span class="copy-feedback" id="feedback-tendencia">Copiado!</span>
+        </div>
         <p class="text-muted">Selecione um produto para visualizar a tendência de registros ao longo do tempo, de acordo com os filtros gerais.</p>
         
         <!-- Formulário de Busca -->
@@ -422,7 +455,7 @@ if ($produto_id_tendencia > 0) {
 
         <!-- Área do Gráfico -->
         <?php if ($produto_id_tendencia > 0): ?>
-            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap">
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap">
                 <h4 class="mt-3 mb-0">Tendência para: <span class="text-primary"><?php echo htmlspecialchars($produto_tendencia_nome); ?></span></h4>
                 <?php
                     // Constrói a URL base para os botões de agrupamento, mantendo os filtros atuais
@@ -436,7 +469,7 @@ if ($produto_id_tendencia > 0) {
                     <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=ano'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'ano') echo 'active'; ?>">Ano</a>
                 </div>
             </div>
-            <div style="position: relative; height: 350px; width: 100%;">
+            <div style="height: 350px; width: 100%;">
                 <canvas id="graficoTendencia"></canvas>
             </div>
         <?php else: ?>
@@ -448,6 +481,7 @@ if ($produto_id_tendencia > 0) {
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
@@ -583,6 +617,57 @@ if ($produto_id_tendencia > 0) {
                 }
             });
         }
+
+        // --- LÓGICA PARA COPIAR CONTAINER DO RELATÓRIO PARA CLIPBOARD ---
+        async function copyReportContainerToClipboard(containerId, feedbackId) {
+            const reportElement = document.getElementById(containerId);
+            const feedbackEl = document.getElementById(feedbackId);
+
+            if (!reportElement || !feedbackEl) {
+                console.error(`Elemento do container #${containerId} ou feedback #${feedbackId} não encontrado.`);
+                return;
+            }
+
+            try {
+                // Usa html2canvas para "fotografar" a área do relatório
+                const canvas = await html2canvas(reportElement, {
+                    scale: 2, // Renderiza com o dobro da resolução para melhor qualidade
+                    useCORS: true,
+                    backgroundColor: null // Permite fundo transparente se o elemento não tiver cor
+                });
+
+                // Converte o novo canvas para um Blob (formato de imagem)
+                canvas.toBlob(async (blob) => {
+                    await navigator.clipboard.write([
+                        new ClipboardItem({ 'image/png': blob })
+                    ]);
+
+                    // Mostra feedback de sucesso
+                    feedbackEl.textContent = 'Copiado!';
+                    feedbackEl.style.backgroundColor = '#28a745';
+                    feedbackEl.style.display = 'inline';
+                    setTimeout(() => { feedbackEl.style.display = 'none'; }, 2000);
+                }, 'image/png');
+
+            } catch (err) {
+                console.error('Falha ao copiar o relatório: ', err);
+                // Mostra feedback de erro
+                feedbackEl.textContent = 'Falha!';
+                feedbackEl.style.backgroundColor = '#dc3545';
+                feedbackEl.style.display = 'inline';
+                setTimeout(() => { feedbackEl.style.display = 'none'; }, 2000);
+            }
+        }
+
+        // Adiciona o evento de clique a todos os botões de cópia de relatório
+        document.querySelectorAll('.btn-copy-report').forEach(button => {
+            button.addEventListener('click', () => {
+                const containerId = button.dataset.containerId;
+                const feedbackId = button.dataset.feedbackId;
+                copyReportContainerToClipboard(containerId, feedbackId);
+            });
+        });
+
 
         // --- LÓGICA PARA O RELATÓRIO DE TENDÊNCIA ---
         const searchInputTendencia = document.getElementById('produto_tendencia_search');

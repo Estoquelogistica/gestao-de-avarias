@@ -1338,6 +1338,50 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
             }
         }
 
+        // --- LÓGICA PARA COPIAR GRÁFICO PARA CLIPBOARD ---
+        async function copyChartToClipboard(chartId, feedbackId) {
+            const canvas = document.getElementById(chartId);
+            const feedbackEl = document.getElementById(feedbackId);
+
+            if (!canvas || !feedbackEl) {
+                console.error('Elemento do gráfico ou de feedback não encontrado.');
+                return;
+            }
+
+            try {
+                // Converte o canvas para um Blob (formato de imagem)
+                canvas.toBlob(async (blob) => {
+                    // Usa a API de Clipboard para escrever a imagem
+                    await navigator.clipboard.write([
+                        new ClipboardItem({ 'image/png': blob })
+                    ]);
+
+                    // Mostra feedback de sucesso
+                    feedbackEl.textContent = 'Copiado!';
+                    feedbackEl.style.backgroundColor = '#28a745';
+                    feedbackEl.style.display = 'inline';
+                    setTimeout(() => { feedbackEl.style.display = 'none'; }, 2000);
+
+                }, 'image/png');
+            } catch (err) {
+                console.error('Falha ao copiar o gráfico: ', err);
+                // Mostra feedback de erro
+                feedbackEl.textContent = 'Falha!';
+                feedbackEl.style.backgroundColor = '#dc3545';
+                feedbackEl.style.display = 'inline';
+                setTimeout(() => { feedbackEl.style.display = 'none'; }, 2000);
+            }
+        }
+
+        // Adiciona o evento de clique a todos os botões de cópia
+        document.querySelectorAll('.btn-copy-chart').forEach(button => {
+            button.addEventListener('click', () => {
+                const chartId = button.dataset.chartId;
+                const feedbackId = button.dataset.feedbackId;
+                copyChartToClipboard(chartId, feedbackId);
+            });
+        });
+
         // Script para submeter o formulário de filtro
         const filtroForm = document.getElementById('filtroForm');
         const anoSelect = document.getElementById('ano');
