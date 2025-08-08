@@ -83,14 +83,14 @@ $sql_ruas = "SELECT
                     WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'I' THEN '09'
                     WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'K' THEN '11'
                     ELSE SUBSTRING(p.endereco, 1, 2)
-                END as rua,
-                COUNT(a.id) as total_ocorrencias,
-                SUM(a.quantidade) as quantidade_total
+                END as rua,                
+                SUM(CASE WHEN a.tipo = 'avaria' THEN a.quantidade ELSE 0 END) as total_avaria,
+                SUM(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.quantidade ELSE 0 END) as total_consumo
             FROM avarias a
             LEFT JOIN produtos p ON a.produto_id = p.id
             {$where_sql} AND p.endereco IS NOT NULL AND p.endereco != ''
             GROUP BY rua
-            ORDER BY quantidade_total DESC";
+            ORDER BY (SUM(CASE WHEN a.tipo = 'avaria' THEN a.quantidade ELSE 0 END) + SUM(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.quantidade ELSE 0 END)) DESC";
 $stmt_ruas = $conn->prepare($sql_ruas);
 $stmt_ruas->bind_param($types, ...$params);
 $stmt_ruas->execute();
@@ -100,16 +100,23 @@ $stmt_ruas->close();
 
 // --- Preparar dados para o gráfico de Ruas ---
 $labels_grafico_ruas = [];
-$dados_grafico_ruas_quantidade = [];
+$dados_grafico_ruas_avaria = [];
+$dados_grafico_ruas_consumo = [];
 $total_geral_ruas = 0;
+
 foreach ($dados_ruas as $rua) {
-    $labels_grafico_ruas[] = 'Rua ' . $rua['rua'];
-    $quantidade = (int)$rua['quantidade_total'];
-    $dados_grafico_ruas_quantidade[] = $quantidade;
-    $total_geral_ruas += $quantidade;
+    $total_rua = (int)$rua['total_avaria'] + (int)$rua['total_consumo'];
+    // Adiciona a rua ao gráfico apenas se houver algum valor a ser mostrado
+    if ($total_rua > 0) {
+        $labels_grafico_ruas[] = 'Rua ' . $rua['rua'];
+        $dados_grafico_ruas_avaria[] = (int)$rua['total_avaria'];
+        $dados_grafico_ruas_consumo[] = (int)$rua['total_consumo'];
+        $total_geral_ruas += $total_rua;
+    }
 }
 $labels_grafico_ruas_json = json_encode($labels_grafico_ruas);
-$dados_grafico_ruas_quantidade_json = json_encode($dados_grafico_ruas_quantidade);
+$dados_grafico_ruas_avaria_json = json_encode($dados_grafico_ruas_avaria);
+$dados_grafico_ruas_consumo_json = json_encode($dados_grafico_ruas_consumo);
 
 // --- Lógica para o Relatório de Tendência por Produto ---
 $produto_id_tendencia = isset($_GET['produto_id_tendencia']) ? (int)$_GET['produto_id_tendencia'] : 0;
@@ -388,8 +395,8 @@ if ($produto_id_tendencia > 0) {
 
     <!-- Adicione mais seções de relatórios aqui -->
     <div class="content-section mt-4" id="report-ruas">
-        <h3>Performance por Rua (Setor)</h3>
-        <p class="text-muted">Gráfico de barras mostrando as ruas do depósito com maior volume de itens perdidos.</p>
+        <h3>Performance por Rua (Avaria vs. Consumo)</h3>
+        <p class="text-muted">Gráfico de barras empilhadas mostrando o volume de itens por tipo em cada setor do depósito.</p>
         <?php if (!empty($dados_ruas)): ?>
             <div style="position: relative; height: 450px; width: 100%;">
                 <canvas id="graficoRuas"></canvas>
@@ -525,36 +532,52 @@ if ($produto_id_tendencia > 0) {
                 type: 'bar',
                 data: {
                     labels: <?php echo $labels_grafico_ruas_json; ?>,
-                    datasets: [{
-                        label: 'Quantidade Total Perdida',
-                        data: <?php echo $dados_grafico_ruas_quantidade_json; ?>,
-                        backgroundColor: 'rgba(220, 53, 69, 0.7)', // Vermelho do Bootstrap
-                        borderColor: 'rgba(220, 53, 69, 1)',
-                        borderWidth: 1
-                    }]
+                    datasets: [
+                        {
+                            label: 'Avarias',
+                            data: <?php echo $dados_grafico_ruas_avaria_json; ?>,
+                            backgroundColor: 'rgba(220, 53, 69, 0.8)', // Vermelho
+                            borderColor: 'rgba(220, 53, 69, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Uso e Consumo',
+                            data: <?php echo $dados_grafico_ruas_consumo_json; ?>,
+                            backgroundColor: 'rgba(25, 135, 84, 0.8)', // Verde
+                            borderColor: 'rgba(25, 135, 84, 1)',
+                            borderWidth: 1
+                        }
+                    ]
                 },
                 options: {
-                    indexAxis: 'y', // Torna o gráfico de barras horizontal
+                    indexAxis: 'y', // Mantém o gráfico de barras horizontal
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
-                        x: { beginAtZero: true, title: { display: true, text: 'Quantidade Total de Itens' } }
+                        x: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Quantidade Total de Itens' }
+                        },
+                        y: {
+                            // No stacking for grouped bars
+                        }
                     },
                     plugins: {
-                        legend: { display: false },
+                        legend: { display: true, position: 'top' },
                         datalabels: {
                             formatter: (value, ctx) => {
                                 if (value <= 0) return null;
                                 const totalGeral = <?php echo $total_geral_ruas; ?>;
                                 if (totalGeral === 0) return value;
                                 const percentage = (value / totalGeral) * 100;
-                                // Retorna o valor e a porcentagem formatada (ex: 150 (25,5%))
+                                // Retorna o valor e a porcentagem formatada (ex: 50 (15,5%))
                                 return `${value} (${percentage.toFixed(1).replace('.', ',')}%)`;
                             },
-                            color: '#000',
+                            color: '#444', // Cor escura para ser legível fora da barra
                             anchor: 'end',
-                            align: 'end',
-                            font: { weight: 'bold' }
+                            align: 'right', // Alinha o rótulo à direita do final da barra
+                            offset: 4, // Espaçamento para não colar na barra
+                            font: { weight: 'bold', size: 10 }
                         }
                     }
                 }
