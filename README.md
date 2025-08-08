@@ -22,12 +22,16 @@ A solução implementou um processo padronizado para o tratamento de avarias int
 
 ## 🔧 Funcionalidades Principais
 
-✅ **Autenticação Segura:** Sistema de login com diferentes níveis de acesso para usuários.  
-✅ **Dashboard Intuitivo:** Painel inicial com gráficos e indicadores chave sobre as avarias.  
-✅ **Registro Detalhado de Avarias:** Formulário para cadastrar novas ocorrências com upload de fotos.  
-✅ **Listagem e Filtragem:** Tabela completa com todas as avarias, com filtros avançados (data, status, produto).  
-✅ **Geração de Relatórios:** Exportação dos dados da tabela para formatos **Excel (XLSX)** e **PDF**.  
-✅ **Gerenciamento:** Módulos para cadastrar e editar usuários, produtos, setores e motivos de avaria.
+✅ **Autenticação Segura:** Sistema de login com diferentes níveis de acesso para usuários.
+✅ **Dashboard Intuitivo:** Painel inicial com KPIs, gráficos de ocorrências e ranking de produtos mais avariados.
+✅ **Registro Detalhado:** Formulário inteligente para registrar avarias e consumo, com busca de produtos e campos dinâmicos.
+✅ **Gerenciamento de Produtos:** CRUD completo de produtos, incluindo importação em massa via CSV.
+✅ **Histórico Completo:** Tabela de registros com filtros avançados (data, produto, tipo) e exportação para **Excel (XLSX)** e **PDF** com colunas selecionáveis.
+✅ **Relatórios Avançados e Interativos:**
+    -   Painel de relatórios com seletor de visualização para uma interface limpa e focada.
+    -   **Análise Geral:** Gráficos de pizza para visualizar a proporção de avarias por motivo e tipo.
+    -   **Performance por Rua:** Gráfico de barras que identifica os setores do depósito com maior volume de perdas.
+    -   **Tendência por Produto:** Ferramenta de análise com busca de produto e gráfico de linha que mostra a evolução dos registros por dia, mês ou ano.
 
 ---
 
