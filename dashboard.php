@@ -634,6 +634,18 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
         font-size: 0.7rem !important; /* Badge menor */
         padding: 0.3em 0.5em;
     }
+    /* Estilos para o novo botão de cópia do painel */
+    .main-header {
+        position: relative;
+        padding-right: 50px; /* Espaço para o botão */
+    }
+    .btn-copy-main {
+        position: absolute; top: 0; right: 0;
+    }
+    .copy-feedback-main {
+        position: absolute; top: 5px; right: 45px; z-index: 10; display: none;
+        background-color: #28a745; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8em;
+    }
   </style>
 </head>
 <body>
@@ -681,10 +693,15 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
 
   <div class="main-content tab-content" id="nav-tabContent">
     <header class="main-header">
-        <h1 id="pageTitle" class="h2"></h1>
+        <h1 id="pageTitle" class="h2">Painel</h1>
+        <div id="painel-header-buttons" style="display: none;">
+            <button class="btn btn-sm btn-outline-secondary btn-copy-report btn-copy-main" data-container-id="report-container-painel" data-feedback-id="feedback-painel" title="Copiar painel como imagem"><i class="fas fa-camera"></i></button>
+            <span class="copy-feedback-main" id="feedback-painel">Copiado!</span>
+        </div>
     </header>
 
     <div class="tab-pane fade show active" id="painel" role="tabpanel" aria-labelledby="painel-tab">
+      <div id="report-container-painel">
       <!-- Cards de KPIs -->
       <div class="row mb-4">
         <div class="col-md-4">
@@ -789,6 +806,7 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                 </ol>
             </div>
         </div>
+      </div>
       </div>
 
     </div>
@@ -1300,10 +1318,12 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
     </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
+    
     // Script para atualizar o título da página ao trocar de aba
     document.addEventListener('DOMContentLoaded', function() {
         // REGISTRA O PLUGIN DE RÓTULOS GLOBALMENTE PARA TODOS OS GRÁFICOS
@@ -1311,10 +1331,13 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
 
         const pageTitle = document.getElementById('pageTitle');
         const sidebarTabs = document.querySelectorAll('#sidebarTabs .nav-link[data-bs-toggle="tab"]');
+        const painelHeaderButtons = document.getElementById('painel-header-buttons');
 
         function updateTitle(tab) {
             if (tab && pageTitle) {
                 pageTitle.textContent = tab.textContent.trim();
+                // Mostra o botão de cópia apenas se a aba "Painel" estiver ativa
+                painelHeaderButtons.style.display = (tab.id === 'painel-tab') ? 'block' : 'none';
             }
         }
 
@@ -1322,6 +1345,7 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
         updateTitle(activeTab);
 
         sidebarTabs.forEach(tab => {
+            // Adiciona o evento para quando uma nova aba é mostrada
             tab.addEventListener('shown.bs.tab', function(event) {
                 updateTitle(event.target);
             });
@@ -1338,47 +1362,51 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
             }
         }
 
-        // --- LÓGICA PARA COPIAR GRÁFICO PARA CLIPBOARD ---
-        async function copyChartToClipboard(chartId, feedbackId) {
-            const canvas = document.getElementById(chartId);
+        // --- LÓGICA PARA COPIAR CONTAINER DO RELATÓRIO PARA CLIPBOARD ---
+        async function copyReportContainerToClipboard(containerId, feedbackId) {
+            const reportElement = document.getElementById(containerId);
             const feedbackEl = document.getElementById(feedbackId);
 
-            if (!canvas || !feedbackEl) {
-                console.error('Elemento do gráfico ou de feedback não encontrado.');
+            if (!reportElement || !feedbackEl) {
+                console.error(`Elemento do container #${containerId} ou feedback #${feedbackId} não encontrado.`);
                 return;
             }
 
             try {
-                // Converte o canvas para um Blob (formato de imagem)
+                // Usa html2canvas para "fotografar" a área do relatório
+                const canvas = await html2canvas(reportElement, {
+                    scale: 2, // Renderiza com o dobro da resolução para melhor qualidade
+                    useCORS: true,
+                    backgroundColor: '#f8f9fb' // Cor de fundo do body para evitar transparência
+                });
+
+                // Converte o novo canvas para um Blob (formato de imagem)
                 canvas.toBlob(async (blob) => {
-                    // Usa a API de Clipboard para escrever a imagem
                     await navigator.clipboard.write([
                         new ClipboardItem({ 'image/png': blob })
                     ]);
 
                     // Mostra feedback de sucesso
                     feedbackEl.textContent = 'Copiado!';
-                    feedbackEl.style.backgroundColor = '#28a745';
                     feedbackEl.style.display = 'inline';
                     setTimeout(() => { feedbackEl.style.display = 'none'; }, 2000);
-
                 }, 'image/png');
+
             } catch (err) {
-                console.error('Falha ao copiar o gráfico: ', err);
+                console.error('Falha ao copiar o relatório: ', err);
                 // Mostra feedback de erro
                 feedbackEl.textContent = 'Falha!';
-                feedbackEl.style.backgroundColor = '#dc3545';
                 feedbackEl.style.display = 'inline';
                 setTimeout(() => { feedbackEl.style.display = 'none'; }, 2000);
             }
         }
 
-        // Adiciona o evento de clique a todos os botões de cópia
-        document.querySelectorAll('.btn-copy-chart').forEach(button => {
+        // Adiciona o evento de clique a todos os botões de cópia de relatório
+        document.querySelectorAll('.btn-copy-report').forEach(button => {
             button.addEventListener('click', () => {
-                const chartId = button.dataset.chartId;
+                const containerId = button.dataset.containerId;
                 const feedbackId = button.dataset.feedbackId;
-                copyChartToClipboard(chartId, feedbackId);
+                copyReportContainerToClipboard(containerId, feedbackId);
             });
         });
 
