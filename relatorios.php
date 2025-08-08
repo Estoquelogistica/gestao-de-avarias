@@ -222,6 +222,11 @@ if ($produto_id_tendencia > 0) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     /* Copiando os estilos do dashboard.php para manter a consistência visual */
+    /* Esconde o corpo da página enquanto ela carrega para evitar o "salto" visual.
+       O JavaScript removerá a classe 'is-loading' quando tudo estiver pronto. */
+    body.is-loading {
+        visibility: hidden;
+    }
     body { font-family: 'Inter', Arial, sans-serif; background-color: #f8f9fb; display: flex; min-height: 100vh; margin: 0; }
     .sidebar { width: 250px; background-color: #254c90; color: white; padding: 0; box-shadow: 2px 0 5px rgba(0,0,0,0.1); display: flex; flex-direction: column; flex-shrink: 0; }
     .sidebar-header { padding: 20px; text-align: left; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
@@ -272,7 +277,7 @@ if ($produto_id_tendencia > 0) {
     }
   </style>
 </head>
-<body>
+<body class="is-loading">
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="logo-container">
@@ -318,8 +323,8 @@ if ($produto_id_tendencia > 0) {
 
     <!-- Seção de Filtros -->
     <div class="content-section">
-        <h3>Filtros Gerais</h3>
-        <form action="relatorios.php" method="GET" class="mt-3" id="form-relatorios-filtros">
+        <h3 id="filtros">Filtros Gerais</h3>
+        <form action="relatorios.php#filtros" method="GET" class="mt-3" id="form-relatorios-filtros">
             <div class="row g-3 align-items-end">
                 <div class="col-md-4">
                     <label for="data_inicial" class="form-label">Data Inicial</label>
@@ -464,9 +469,9 @@ if ($produto_id_tendencia > 0) {
                     $base_url_tendencia = 'relatorios.php?' . http_build_query($query_params_tendencia);
                 ?>
                 <div class="btn-group" role="group">
-                    <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=dia'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'dia') echo 'active'; ?>">Dia</a>
-                    <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=mes'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'mes') echo 'active'; ?>">Mês</a>
-                    <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=ano'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'ano') echo 'active'; ?>">Ano</a>
+                    <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=dia#report-tendencia'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'dia') echo 'active'; ?>">Dia</a>
+                    <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=mes#report-tendencia'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'mes') echo 'active'; ?>">Mês</a>
+                    <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=ano#report-tendencia'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'ano') echo 'active'; ?>">Ano</a>
                 </div>
             </div>
             <div style="height: 350px; width: 100%;">
@@ -717,8 +722,8 @@ if ($produto_id_tendencia > 0) {
                 if (target && target.dataset.productId) {
                     const productId = target.dataset.productId;
                     const url = new URL(window.location.href);
-                    url.searchParams.set('produto_id_tendencia', productId);
-                    window.location.href = url.toString();
+                    url.searchParams.set('produto_id_tendencia', productId); // Adiciona o ID do produto
+                    window.location.href = url.pathname + url.search + '#report-tendencia'; // Adiciona o hash e recarrega
                 }
             });
 
@@ -749,8 +754,22 @@ if ($produto_id_tendencia > 0) {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    scales: { y: { beginAtZero: true, title: { display: true, text: 'Quantidade Registrada' } } },
-                    plugins: { legend: { display: false }, datalabels: { display: false } }
+                    scales: { 
+                        y: { 
+                            beginAtZero: true, 
+                            title: { display: true, text: 'Quantidade Registrada' } 
+                        } 
+                    },
+                    plugins: { 
+                        legend: { display: false }, 
+                        datalabels: {
+                            formatter: (value) => (value > 0 ? value : null),
+                            backgroundColor: 'rgba(37, 76, 144, 0.8)',
+                            color: 'white',
+                            borderRadius: 4,
+                            font: { weight: 'bold' }
+                        }
+                    }
                 }
             });
         }
@@ -791,6 +810,24 @@ if ($produto_id_tendencia > 0) {
                 });
             });
         }
+
+        // --- LÓGICA PARA CORRIGIR O SCROLL APÓS FILTRAR ---
+        // Força o scroll para a âncora na URL (#) após o recarregamento completo da página,
+        // e só então exibe a página. Isso evita o "salto" visual.
+        window.addEventListener('load', function() {
+            const hash = window.location.hash;
+            if (hash) {
+                const elementId = hash.substring(1); // Remove o '#'
+                const targetElement = document.getElementById(elementId);
+                if (targetElement) {
+                    // Rola a página para o elemento alvo instantaneamente.
+                    targetElement.scrollIntoView({ behavior: 'auto', block: 'start' });
+                }
+            }
+            // Remove a classe que esconde o corpo da página, tornando-o visível
+            // já na posição correta e evitando o "salto".
+            document.body.classList.remove('is-loading');
+        });
     });
   </script>
   <?php $conn->close(); ?>
