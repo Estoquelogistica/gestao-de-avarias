@@ -10,13 +10,13 @@
 ## 📝 Descrição
 
 **Contexto:**  
-O controle de avarias em produtos durante o manuseio e transporte é um ponto crítico na logística. A falta de um registro formal e centralizado resultava em perdas financeiras, dificuldade em identificar as causas-raiz dos problemas e falta de dados para a melhoria contínua dos processos.
+O controle de mercadorias avariadas **dentro do depósito** é um desafio operacional e financeiro. A falta de um registro formal para danos ocorridos durante a movimentação e armazenagem interna resultava em perdas de inventário, dificuldade em identificar os setores com maior incidência de problemas e falta de dados para a melhoria contínua.
 
 **Ação:**  
-Foi desenvolvido o "Sistema de Gestão de Avarias", uma aplicação web para registrar, acompanhar e gerar relatórios sobre todas as ocorrências de danos em produtos. O sistema permite o cadastro detalhado de cada avaria, incluindo fotos, descrição, quantidade e motivo.
+Foi desenvolvido o "Sistema de Gestão de Avarias", uma aplicação web para **controlar todas as ocorrências de danos em mercadorias dentro do depósito**. O sistema permite o cadastro detalhado de cada avaria, incluindo fotos, descrição, quantidade e motivo, fornecendo rastreabilidade completa.
 
 **Resultado:**  
-A solução implementou um processo padronizado para o tratamento de avarias. Com um banco de dados centralizado, a gestão agora tem visibilidade total sobre as ocorrências, podendo filtrar por data, produto ou setor. A capacidade de gerar relatórios em Excel e PDF fornece as ferramentas necessárias para análises gerenciais, ajudando a reduzir perdas e a aprimorar a qualidade operacional.
+A solução implementou um processo padronizado para o tratamento de avarias internas. Com um banco de dados centralizado, a gestão do depósito agora tem visibilidade total sobre as ocorrências, podendo filtrar por data, produto ou setor. A capacidade de gerar relatórios em Excel e PDF fornece as ferramentas necessárias para análises gerenciais, ajudando a reduzir perdas e a aprimorar a qualidade operacional do armazém.
 
 ---
 
