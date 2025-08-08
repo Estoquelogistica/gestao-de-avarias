@@ -1,10 +1,6 @@
 # Composer - Dependências do projeto principal
 /vendor/
 
-# Bibliotecas instaladas manualmente
-# A pasta 'lib' contém o dompdf, que idealmente deveria ser gerenciado pelo composer.json principal.
-/lib/
-
 # Pasta para uploads temporários de arquivos
 /uploads/
 
