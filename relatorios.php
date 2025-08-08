@@ -119,57 +119,69 @@ $dados_grafico_ruas_avaria_json = json_encode($dados_grafico_ruas_avaria);
 $dados_grafico_ruas_consumo_json = json_encode($dados_grafico_ruas_consumo);
 
 // --- Lógica para o Relatório de Tendência por Produto ---
-$produto_id_tendencia = isset($_GET['produto_id_tendencia']) ? (int)$_GET['produto_id_tendencia'] : 0;
-$agrupamento_tendencia = $_GET['tendencia_agrupamento'] ?? 'mes'; // 'dia', 'mes', 'ano'
-$produto_tendencia_nome = '';
-$labels_grafico_tendencia_json = '[]';
-$dados_grafico_tendencia_json = '[]';
+$produto_ids_tendencia = [];
+if (isset($_GET['produto_ids_tendencia']) && is_array($_GET['produto_ids_tendencia'])) {
+    // Garante que todos os valores são inteiros e positivos
+    $produto_ids_tendencia = array_map('intval', $_GET['produto_ids_tendencia']);
+    $produto_ids_tendencia = array_filter($produto_ids_tendencia, fn($id) => $id > 0);
+    // Limita a seleção a no máximo 3 produtos e remove duplicados
+    $produto_ids_tendencia = array_slice(array_unique($produto_ids_tendencia), 0, 3);
+}
 
-if ($produto_id_tendencia > 0) {
-    // 1. Buscar nome do produto para o título
-    $stmt_nome_tendencia = $conn->prepare("SELECT descricao FROM produtos WHERE id = ?");
-    $stmt_nome_tendencia->bind_param("i", $produto_id_tendencia);
+$agrupamento_tendencia = $_GET['tendencia_agrupamento'] ?? 'mes'; // 'dia', 'mes', 'ano'
+$dados_grafico_tendencia_json = '{"labels":[], "datasets":[]}'; // Estrutura para múltiplos datasets
+$produtos_selecionados_tendencia = []; // Para exibir os nomes dos produtos selecionados
+
+if (!empty($produto_ids_tendencia)) {
+    // 1. Build the IN clause for the SQL query
+    $in_placeholders = implode(',', array_fill(0, count($produto_ids_tendencia), '?'));
+    $types_for_in = str_repeat('i', count($produto_ids_tendencia));
+
+    // 2. Buscar nomes dos produtos selecionados para a UI
+    $sql_nomes = "SELECT id, descricao FROM produtos WHERE id IN ($in_placeholders)";
+    $stmt_nome_tendencia = $conn->prepare($sql_nomes);
+    $stmt_nome_tendencia->bind_param($types_for_in, ...$produto_ids_tendencia);
     $stmt_nome_tendencia->execute();
     $result_nome_tendencia = $stmt_nome_tendencia->get_result();
-    if ($row_nome_tendencia = $result_nome_tendencia->fetch_assoc()) {
-        $produto_tendencia_nome = $row_nome_tendencia['descricao'];
+    while ($row = $result_nome_tendencia->fetch_assoc()) {
+        $produtos_selecionados_tendencia[$row['id']] = $row['descricao'];
     }
     $stmt_nome_tendencia->close();
 
-    // 2. Buscar dados da tendência (agrupados por dia, mês ou ano)
-    $where_tendencia_sql = $where_sql . " AND a.produto_id = ?";
-    $params_tendencia = array_merge($params, [$produto_id_tendencia]);
-    $types_tendencia = $types . 'i';
+    // 3. Buscar dados da tendência (agrupados por dia, mês ou ano)
+    $where_tendencia_sql = $where_sql . " AND a.produto_id IN ($in_placeholders)";
+    $params_tendencia = array_merge($params, $produto_ids_tendencia);
+    $types_tendencia = $types . $types_for_in;
 
     // Define os campos e agrupamentos da query com base na seleção do usuário
     $select_fields = '';
     $group_by_sql = '';
     $order_by_sql = '';
+    $meses_nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
     switch ($agrupamento_tendencia) {
         case 'dia':
-            $select_fields = "DATE(a.data_ocorrencia) as data_agrupada, SUM(a.quantidade) as quantidade_total";
-            $group_by_sql = "GROUP BY data_agrupada";
+            $select_fields = "a.produto_id, DATE(a.data_ocorrencia) as data_agrupada, SUM(a.quantidade) as quantidade_total";
+            $group_by_sql = "GROUP BY a.produto_id, data_agrupada";
             $order_by_sql = "ORDER BY data_agrupada ASC";
             break;
         case 'ano':
-            $select_fields = "YEAR(a.data_ocorrencia) as ano, SUM(a.quantidade) as quantidade_total";
-            $group_by_sql = "GROUP BY ano";
+            $select_fields = "a.produto_id, YEAR(a.data_ocorrencia) as ano, SUM(a.quantidade) as quantidade_total";
+            $group_by_sql = "GROUP BY a.produto_id, ano";
             $order_by_sql = "ORDER BY ano ASC";
             break;
         case 'mes':
         default:
-            $select_fields = "YEAR(a.data_ocorrencia) as ano, MONTH(a.data_ocorrencia) as mes, SUM(a.quantidade) as quantidade_total";
-            $group_by_sql = "GROUP BY ano, mes";
+            $select_fields = "a.produto_id, YEAR(a.data_ocorrencia) as ano, MONTH(a.data_ocorrencia) as mes, SUM(a.quantidade) as quantidade_total";
+            $group_by_sql = "GROUP BY a.produto_id, ano, mes";
             $order_by_sql = "ORDER BY ano, mes ASC";
             break;
     }
 
     $sql_tendencia = "SELECT {$select_fields}
                       FROM avarias a
-                      {$where_tendencia_sql}
-                      {$group_by_sql} {$order_by_sql}";
-    
+                      {$where_tendencia_sql} {$group_by_sql} {$order_by_sql}";
+
     $stmt_tendencia = $conn->prepare($sql_tendencia);
     $stmt_tendencia->bind_param($types_tendencia, ...$params_tendencia);
     $stmt_tendencia->execute();
@@ -177,35 +189,44 @@ if ($produto_id_tendencia > 0) {
     $dados_tendencia_raw = $result_tendencia->fetch_all(MYSQLI_ASSOC);
     $stmt_tendencia->close();
 
-    // 3. Preparar dados para o gráfico, formatando os rótulos de acordo com o agrupamento
-    $labels_grafico_tendencia = [];
-    $dados_grafico_tendencia = [];
+    // 4. Processar dados brutos para o formato do Chart.js
+    $all_labels_map = [];
+    $datasets_temp = [];
 
-    switch ($agrupamento_tendencia) {
-        case 'dia':
-            foreach ($dados_tendencia_raw as $row) {
-                $labels_grafico_tendencia[] = date('d/m/y', strtotime($row['data_agrupada']));
-                $dados_grafico_tendencia[] = (int)$row['quantidade_total'];
-            }
-            break;
-        case 'ano':
-            foreach ($dados_tendencia_raw as $row) {
-                $labels_grafico_tendencia[] = $row['ano'];
-                $dados_grafico_tendencia[] = (int)$row['quantidade_total'];
-            }
-            break;
-        case 'mes':
-        default:
-            $meses_nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-            foreach ($dados_tendencia_raw as $row) {
-                $labels_grafico_tendencia[] = $meses_nomes[$row['mes'] - 1] . '/' . substr($row['ano'], -2);
-                $dados_grafico_tendencia[] = (int)$row['quantidade_total'];
-            }
-            break;
+    foreach ($dados_tendencia_raw as $row) {
+        $label = '';
+        switch ($agrupamento_tendencia) {
+            case 'dia': $label = date('d/m/y', strtotime($row['data_agrupada'])); break;
+            case 'ano': $label = $row['ano']; break;
+            case 'mes': default: $label = $meses_nomes[$row['mes'] - 1] . '/' . substr($row['ano'], -2); break;
+        }
+        $all_labels_map[$label] = true;
+        $datasets_temp[$row['produto_id']][$label] = (int)$row['quantidade_total'];
     }
-    
-    $labels_grafico_tendencia_json = json_encode($labels_grafico_tendencia);
-    $dados_grafico_tendencia_json = json_encode($dados_grafico_tendencia);
+
+    $labels_grafico_tendencia = array_keys($all_labels_map);
+    $datasets = [];
+    $colors = ['rgba(37, 76, 144, %a)', 'rgba(220, 53, 69, %a)', 'rgba(25, 135, 84, %a)'];
+    $color_index = 0;
+
+    foreach ($produtos_selecionados_tendencia as $produto_id => $produto_nome) {
+        $data = [];
+        foreach ($labels_grafico_tendencia as $label) {
+            $data[] = $datasets_temp[$produto_id][$label] ?? 0;
+        }
+        $color_base = $colors[$color_index % count($colors)];
+        $datasets[] = [
+            'label' => $produto_nome,
+            'data' => $data,
+            'fill' => true,
+            'backgroundColor' => str_replace('%a', '0.2', $color_base),
+            'borderColor' => str_replace('%a', '1', $color_base),
+            'tension' => 0.1
+        ];
+        $color_index++;
+    }
+
+    $dados_grafico_tendencia_json = json_encode(['labels' => $labels_grafico_tendencia, 'datasets' => $datasets]);
 }
 ?>
 <!DOCTYPE html>
@@ -447,28 +468,38 @@ if ($produto_id_tendencia > 0) {
             <button class="btn btn-sm btn-outline-secondary btn-copy-report" data-container-id="report-tendencia" data-feedback-id="feedback-tendencia" title="Copiar relatório como imagem"><i class="fas fa-camera"></i></button>
             <span class="copy-feedback" id="feedback-tendencia">Copiado!</span>
         </div>
-        <p class="text-muted">Selecione um produto para visualizar a tendência de registros ao longo do tempo, de acordo com os filtros gerais.</p>
+        <p class="text-muted">Selecione até 3 produtos para comparar a tendência de registros ao longo do tempo.</p>
         
-        <!-- Formulário de Busca -->
-        <div class="row align-items-end">
-            <div class="col-md-8 mb-3 position-relative">
-                <label for="produto_tendencia_search" class="form-label">Buscar Produto</label>
-                <input type="text" class="form-control" id="produto_tendencia_search" placeholder="Digite o código, descrição ou referência do produto..." value="<?php echo htmlspecialchars($produto_tendencia_nome); ?>">
+        <!-- Container para produtos selecionados e busca -->
+        <div class="row align-items-start">
+            <div class="col-12 mb-3">
+                <div id="tendencia-selected-products" class="d-flex flex-wrap gap-2">
+                    <?php foreach ($produtos_selecionados_tendencia as $id => $nome): ?>
+                        <span class="badge bg-primary d-flex align-items-center p-2">
+                            <span class="me-2"><?php echo htmlspecialchars($nome); ?></span>
+                            <button type="button" class="btn-close btn-close-white remove-tendencia-product" data-id="<?php echo $id; ?>" aria-label="Remove"></button>
+                        </span>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <div id="tendencia-search-container" class="col-md-8 position-relative" <?php if (count($produto_ids_tendencia) >= 3) echo 'style="display:none;"'; ?>>
+                <label for="produto_tendencia_search" class="form-label">Buscar Produto (<?php echo count($produto_ids_tendencia); ?>/3)</label>
+                <input type="text" class="form-control" id="produto_tendencia_search" placeholder="Digite o código, descrição ou referência...">
                 <div id="search-results-tendencia" class="list-group position-absolute" style="z-index: 1000; width: calc(100% - 1rem);"></div>
             </div>
         </div>
 
         <!-- Área do Gráfico -->
-        <?php if ($produto_id_tendencia > 0): ?>
+        <?php if (!empty($produto_ids_tendencia)): ?>
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap">
-                <h4 class="mt-3 mb-0">Tendência para: <span class="text-primary"><?php echo htmlspecialchars($produto_tendencia_nome); ?></span></h4>
+                <h4 class="mt-3 mb-0">Comparativo de Tendência</h4>
                 <?php
                     // Constrói a URL base para os botões de agrupamento, mantendo os filtros atuais
                     $query_params_tendencia = $_GET;
                     unset($query_params_tendencia['tendencia_agrupamento']);
                     $base_url_tendencia = 'relatorios.php?' . http_build_query($query_params_tendencia);
                 ?>
-                <div class="btn-group" role="group">
+                <div class="btn-group mt-3" role="group">
                     <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=dia#report-tendencia'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'dia') echo 'active'; ?>">Dia</a>
                     <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=mes#report-tendencia'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'mes') echo 'active'; ?>">Mês</a>
                     <a href="<?php echo $base_url_tendencia . '&tendencia_agrupamento=ano#report-tendencia'; ?>" class="btn btn-sm btn-outline-primary <?php if ($agrupamento_tendencia === 'ano') echo 'active'; ?>">Ano</a>
@@ -677,94 +708,117 @@ if ($produto_id_tendencia > 0) {
         // --- LÓGICA PARA O RELATÓRIO DE TENDÊNCIA ---
         const searchInputTendencia = document.getElementById('produto_tendencia_search');
         const searchResultsTendencia = document.getElementById('search-results-tendencia');
+        const selectedProductsContainer = document.getElementById('tendencia-selected-products');
         let searchTimeoutTendencia;
 
-        if (searchInputTendencia) {
-            searchInputTendencia.addEventListener('keyup', () => {
-                clearTimeout(searchTimeoutTendencia);
-                const searchTerm = searchInputTendencia.value.trim();
-                if (searchTerm.length < 2) {
-                    searchResultsTendencia.innerHTML = '';
-                    searchResultsTendencia.style.display = 'none';
-                    return;
-                }
-                searchTimeoutTendencia = setTimeout(async () => {
-                    try {
-                        const response = await fetch(`api_search_products.php?term=${encodeURIComponent(searchTerm)}`);
-                        const products = await response.json();
-                        
-                        searchResultsTendencia.innerHTML = '';
-                        if (products.length > 0) {
-                            products.forEach(product => {
-                                const item = document.createElement('a');
-                                item.href = '#';
-                                item.classList.add('list-group-item', 'list-group-item-action');
-                                item.innerHTML = `<strong>${product.codigo_produto}</strong> - ${product.descricao}`;
-                                item.dataset.productId = product.id;
-                                searchResultsTendencia.appendChild(item);
-                            });
-                            searchResultsTendencia.style.display = 'block';
-                        } else {
-                            searchResultsTendencia.innerHTML = '<span class="list-group-item">Nenhum produto encontrado.</span>';
-                            searchResultsTendencia.style.display = 'block';
-                        }
-                    } catch (error) {
-                        console.error('Erro na busca de tendência:', error);
-                        searchResultsTendencia.innerHTML = '<span class="list-group-item text-danger">Erro ao buscar.</span>';
-                        searchResultsTendencia.style.display = 'block';
-                    }
-                }, 300);
+        // Helper: Recarrega a página com a lista de IDs de produtos atualizada.
+        function reloadWithProductIds(productIds) {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('produto_ids_tendencia[]'); // Limpa os parâmetros existentes
+            productIds.forEach(id => {
+                url.searchParams.append('produto_ids_tendencia[]', id);
             });
-
-            searchResultsTendencia.addEventListener('click', (e) => {
-                e.preventDefault();
-                const target = e.target.closest('a');
-                if (target && target.dataset.productId) {
-                    const productId = target.dataset.productId;
-                    const url = new URL(window.location.href);
-                    url.searchParams.set('produto_id_tendencia', productId); // Adiciona o ID do produto
-                    window.location.href = url.pathname + url.search + '#report-tendencia'; // Adiciona o hash e recarrega
-                }
-            });
-
-            // Esconde a lista de resultados se clicar fora
-            document.addEventListener('click', function(event) {
-                if (!searchInputTendencia.contains(event.target)) {
-                    searchResultsTendencia.style.display = 'none';
-                }
-            });
+            window.location.href = url.pathname + url.search + '#report-tendencia';
         }
+
+        // Helper: Pega os IDs dos produtos já selecionados (lendo os botões de remover).
+        function getCurrentSelectedIds() {
+            return Array.from(document.querySelectorAll('.remove-tendencia-product')).map(btn => btn.dataset.id);
+        }
+
+        // Evento para ADICIONAR um produto da busca
+        searchResultsTendencia.addEventListener('click', (e) => {
+            e.preventDefault();
+            const target = e.target.closest('a');
+            if (target && target.dataset.productId) {
+                const newProductId = target.dataset.productId;
+                const currentIds = getCurrentSelectedIds();
+
+                // Evita adicionar produtos duplicados e respeita o limite de 3
+                if (!currentIds.includes(newProductId) && currentIds.length < 3) {
+                    currentIds.push(newProductId);
+                    reloadWithProductIds(currentIds);
+                }
+            }
+        });
+
+        // Evento para REMOVER um produto ao clicar no 'x'
+        selectedProductsContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('remove-tendencia-product')) {
+                const productIdToRemove = e.target.dataset.id;
+                let currentIds = getCurrentSelectedIds();
+                currentIds = currentIds.filter(id => id !== productIdToRemove);
+                reloadWithProductIds(currentIds);
+            }
+        });
+
+        // Lógica de busca com debounce (atraso para não sobrecarregar)
+        searchInputTendencia.addEventListener('keyup', () => {
+            clearTimeout(searchTimeoutTendencia);
+            const searchTerm = searchInputTendencia.value.trim();
+            if (searchTerm.length < 2) {
+                searchResultsTendencia.style.display = 'none';
+                return;
+            }
+            searchTimeoutTendencia = setTimeout(async () => {
+                try {
+                    const response = await fetch(`api_search_products.php?term=${encodeURIComponent(searchTerm)}`);
+                    const products = await response.json();
+                    
+                    searchResultsTendencia.innerHTML = '';
+                    if (products.length > 0) {
+                        products.forEach(product => {
+                            const item = document.createElement('a');
+                            item.href = '#';
+                            item.classList.add('list-group-item', 'list-group-item-action');
+                            item.innerHTML = `<strong>${product.codigo_produto}</strong> - ${product.descricao}`;
+                            item.dataset.productId = product.id;
+                            searchResultsTendencia.appendChild(item);
+                        });
+                    } else {
+                        searchResultsTendencia.innerHTML = '<span class="list-group-item">Nenhum produto encontrado.</span>';
+                    }
+                    searchResultsTendencia.style.display = 'block';
+                } catch (error) {
+                    console.error('Erro na busca de tendência:', error);
+                    searchResultsTendencia.innerHTML = '<span class="list-group-item text-danger">Erro ao buscar.</span>';
+                    searchResultsTendencia.style.display = 'block';
+                }
+            }, 300);
+        });
+
+        // Esconde a lista de resultados se clicar fora da área de busca
+        document.addEventListener('click', (event) => {
+            if (!searchInputTendencia.contains(event.target) && !searchResultsTendencia.contains(event.target)) {
+                searchResultsTendencia.style.display = 'none';
+            }
+        });
 
         // Gráfico de Tendência
         const ctxTendencia = document.getElementById('graficoTendencia')?.getContext('2d');
         if (ctxTendencia) {
+            const tendenciaData = <?php echo $dados_grafico_tendencia_json; ?>;
             new Chart(ctxTendencia, {
                 type: 'line',
-                data: {
-                    labels: <?php echo $labels_grafico_tendencia_json; ?>,
-                    datasets: [{
-                        label: 'Quantidade Total',
-                        data: <?php echo $dados_grafico_tendencia_json; ?>,
-                        fill: true,
-                        backgroundColor: 'rgba(37, 76, 144, 0.2)',
-                        borderColor: 'rgba(37, 76, 144, 1)',
-                        tension: 0.1
-                    }]
-                },
+                data: tendenciaData, // CORREÇÃO: Usa o objeto JSON completo gerado pelo PHP
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: { 
                         y: { 
                             beginAtZero: true, 
-                            title: { display: true, text: 'Quantidade Registrada' } 
+                            title: { display: true, text: 'Quantidade Registrada' },
+                            ticks: { precision: 0 } // Garante que o eixo Y só mostre números inteiros
                         } 
                     },
                     plugins: { 
-                        legend: { display: false }, 
+                        legend: { 
+                            display: tendenciaData.datasets.length > 1, // Mostra legenda apenas se houver mais de 1 produto
+                            position: 'top' 
+                        }, 
                         datalabels: {
                             formatter: (value) => (value > 0 ? value : null),
-                            backgroundColor: 'rgba(37, 76, 144, 0.8)',
+                            backgroundColor: (context) => context.dataset.borderColor, // Usa a cor da linha como fundo
                             color: 'white',
                             borderRadius: 4,
                             font: { weight: 'bold' }
