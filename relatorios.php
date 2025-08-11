@@ -72,6 +72,7 @@ $dados_grafico_motivos_json = json_encode($dados_grafico_motivos);
 // --- Lógica para o Relatório de Performance por Rua (Setor) ---
 $sql_ruas = "SELECT
                 CASE
+                    WHEN p.endereco IS NULL OR TRIM(p.endereco) = '' THEN 'Sem Endereço'
                     WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'A' THEN '01'
                     WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'B' THEN '02'
                     WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'C' THEN '03'
@@ -88,7 +89,7 @@ $sql_ruas = "SELECT
                 SUM(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.quantidade ELSE 0 END) as total_consumo
             FROM avarias a
             LEFT JOIN produtos p ON a.produto_id = p.id
-            {$where_sql} AND p.endereco IS NOT NULL AND p.endereco != ''
+            {$where_sql}
             GROUP BY rua
             ORDER BY (SUM(CASE WHEN a.tipo = 'avaria' THEN a.quantidade ELSE 0 END) + SUM(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.quantidade ELSE 0 END)) DESC";
 $stmt_ruas = $conn->prepare($sql_ruas);
@@ -108,11 +109,34 @@ foreach ($dados_ruas as $rua) {
     $total_rua = (int)$rua['total_avaria'] + (int)$rua['total_consumo'];
     // Adiciona a rua ao gráfico apenas se houver algum valor a ser mostrado
     if ($total_rua > 0) {
-        $labels_grafico_ruas[] = 'Rua ' . $rua['rua'];
+        if ($rua['rua'] === 'Sem Endereço') {
+            $labels_grafico_ruas[] = 'Sem Endereço';
+        } else {
+            $labels_grafico_ruas[] = 'Rua ' . $rua['rua'];
+        }
         $dados_grafico_ruas_avaria[] = (int)$rua['total_avaria'];
         $dados_grafico_ruas_consumo[] = (int)$rua['total_consumo'];
         $total_geral_ruas += $total_rua;
     }
+}
+
+// Calcula uma altura dinâmica para o gráfico para evitar que as barras fiquem espremidas.
+$num_ruas = count($labels_grafico_ruas);
+$altura_grafico_ruas = max(450, $num_ruas * 35 + 120); // Mínimo 450px, 35px por rua + 120px para eixos/legenda.
+
+// Encontra o valor máximo nos dados para ajustar o eixo X e dar espaço aos rótulos.
+$max_ruas_value = 0;
+if (!empty($dados_grafico_ruas_avaria)) {
+    $max_ruas_value = max($max_ruas_value, max($dados_grafico_ruas_avaria));
+}
+if (!empty($dados_grafico_ruas_consumo)) {
+    $max_ruas_value = max($max_ruas_value, max($dados_grafico_ruas_consumo));
+}
+// Adiciona uma margem de 30% ao valor máximo para garantir que os rótulos caibam.
+// O fator de 1.30 pode ser ajustado se os rótulos ainda estiverem sendo cortados.
+$x_axis_max_ruas = ceil($max_ruas_value * 1.30);
+if ($x_axis_max_ruas < 5) { // Garante um valor mínimo para o eixo.
+    $x_axis_max_ruas = 5;
 }
 $labels_grafico_ruas_json = json_encode($labels_grafico_ruas);
 $dados_grafico_ruas_avaria_json = json_encode($dados_grafico_ruas_avaria);
@@ -453,7 +477,7 @@ if (!empty($produto_ids_tendencia)) {
         </div>
         <p class="text-muted">Gráfico de barras empilhadas mostrando o volume de itens por tipo em cada setor do depósito.</p>
         <?php if (!empty($dados_ruas)): ?>
-            <div style="height: 450px; width: 100%;">
+            <div style="height: <?php echo $altura_grafico_ruas; ?>px; width: 100%;">
                 <canvas id="graficoRuas"></canvas>
             </div>
         <?php else: ?>
@@ -513,6 +537,29 @@ if (!empty($produto_ids_tendencia)) {
         <?php endif; ?>
     </div>
 
+  </div>
+
+  <!-- Modal para Detalhes da Rua -->
+  <div class="modal fade" id="ruaDetailsModal" tabindex="-1" aria-labelledby="ruaDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="ruaDetailsModalLabel">Detalhes dos Itens</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body" id="ruaDetailsModalBody">
+          <!-- O conteúdo será preenchido via JavaScript -->
+          <div class="text-center">
+            <div class="spinner-border" role="status">
+              <span class="visually-hidden">Carregando...</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -626,7 +673,8 @@ if (!empty($produto_ids_tendencia)) {
                     scales: {
                         x: {
                             beginAtZero: true,
-                            title: { display: true, text: 'Quantidade Total de Itens' }
+                            title: { display: true, text: 'Quantidade Total de Itens' },
+                            max: <?php echo $x_axis_max_ruas; ?> // Define o valor máximo do eixo X para dar espaço aos rótulos
                         },
                         y: {
                             // No stacking for grouped bars
@@ -648,6 +696,66 @@ if (!empty($produto_ids_tendencia)) {
                             align: 'right', // Alinha o rótulo à direita do final da barra
                             offset: 4, // Espaçamento para não colar na barra
                             font: { weight: 'bold', size: 10 }
+                        }
+                    },
+                    // CORREÇÃO: O handler de clique deve estar dentro do objeto 'options'.
+                    onClick: async (event, elements) => {
+                        if (elements.length === 0) return; // Sai se o clique não foi em uma barra
+
+                        const chart = event.chart;
+                        const index = elements[0].index;
+                        const ruaLabel = chart.data.labels[index];
+
+                        // Pega os filtros atuais da página
+                        const dataInicial = document.getElementById('data_inicial').value;
+                        const dataFinal = document.getElementById('data_final').value;
+                        const tipoRelatorio = document.getElementById('tipo_relatorio').value;
+
+                        // Prepara e abre o modal
+                        const modalElement = document.getElementById('ruaDetailsModal');
+                        const detailsModal = new bootstrap.Modal(modalElement);
+                        document.getElementById('ruaDetailsModalLabel').textContent = `Itens para: ${ruaLabel}`;
+                        const modalBody = document.getElementById('ruaDetailsModalBody');
+                        modalBody.innerHTML = '<div class="text-center p-4"><div class="spinner-border" role="status"><span class="visually-hidden">Carregando...</span></div></div>';
+                        detailsModal.show();
+
+                        // Busca os dados na nova API
+                        try {
+                            const url = `api_get_details_by_rua.php?rua=${encodeURIComponent(ruaLabel)}&data_inicial=${dataInicial}&data_final=${dataFinal}&tipo_relatorio=${tipoRelatorio}`;
+                            const response = await fetch(url);
+                            const items = await response.json();
+
+                            if (items.error) {
+                                throw new Error(items.error);
+                            }
+
+                            // Monta a tabela com os resultados
+                            if (items.length > 0) {
+                                let tableHtml = '<table class="table table-sm table-striped"><thead><tr><th>Produto</th><th class="text-center">Qtd.</th><th>Tipo</th><th>Data</th></tr></thead><tbody>';
+                                items.forEach(item => {
+                                    const tipoBadge = item.tipo === 'avaria' 
+                                        ? '<span class="badge bg-danger">Avaria</span>' 
+                                        : '<span class="badge bg-success">Uso/Consumo</span>';
+                                    const dataFormatada = new Date(item.data_ocorrencia + 'T00:00:00').toLocaleDateString('pt-BR');
+
+                                    tableHtml += `
+                                        <tr>
+                                            <td>${item.produto_nome}</td>
+                                            <td class="text-center">${item.quantidade}</td>
+                                            <td>${tipoBadge}</td>
+                                            <td>${dataFormatada}</td>
+                                        </tr>
+                                    `;
+                                });
+                                tableHtml += '</tbody></table>';
+                                modalBody.innerHTML = tableHtml;
+                            } else {
+                                modalBody.innerHTML = '<p class="text-center p-4">Nenhum item encontrado para esta seleção.</p>';
+                            }
+
+                        } catch (error) {
+                            console.error('Erro ao buscar detalhes da rua:', error);
+                            modalBody.innerHTML = `<div class="alert alert-danger">Erro ao carregar os dados: ${error.message}</div>`;
                         }
                     }
                 }

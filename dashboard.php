@@ -813,6 +813,21 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
 
     <div class="tab-pane fade" id="registrar" role="tabpanel" aria-labelledby="registrar-tab">
       <div class="content-section">
+        <?php if ($registro_sucesso): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="fas fa-check-circle me-2"></i>
+                <?php echo htmlspecialchars($registro_sucesso); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+        <?php if ($registro_erro): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <?php echo htmlspecialchars($registro_erro); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+
         <h3>Registrar Nova Avaria ou Consumo</h3>
         <form id="form-registrar-avaria" action="dashboard.php#registrar" method="POST" class="mt-4">
             <!-- Campos ocultos para enviar os dados do produto selecionado -->
@@ -882,6 +897,32 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
 
     <div class="tab-pane fade" id="lista-produtos" role="tabpanel" aria-labelledby="lista-produtos-tab">
       <div class="content-section">
+        <?php if ($lista_produto_sucesso): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="fas fa-check-circle me-2"></i>
+                <?php echo $lista_produto_sucesso; // Pode conter HTML (<strong>), então não escapamos ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+        <?php if ($lista_produto_erro): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <?php echo htmlspecialchars($lista_produto_erro); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+        <?php if ($lista_produto_log_erros): ?>
+            <div class="alert alert-warning" role="alert">
+                <h4 class="alert-heading"><i class="fas fa-exclamation-triangle me-2"></i>Ocorreram erros durante a importação</h4>
+                <p>Algumas linhas do seu arquivo CSV não puderam ser processadas. Veja os detalhes abaixo:</p>
+                <hr>
+                <ul class="mb-0">
+                    <?php foreach ($lista_produto_log_erros as $log_erro): ?>
+                        <li><small><?php echo htmlspecialchars($log_erro); ?></small></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        <?php endif; ?>
         <h3>Lista de Produtos Cadastrados</h3>
 
         <!-- Formulário de Busca de Produtos -->
