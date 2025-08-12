@@ -127,6 +127,9 @@ while ($reg = $result->fetch_assoc()) {
                     $cellStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('DC3545'); // Vermelho
                 } elseif ($reg['tipo'] === 'uso_e_consumo') {
                     $cellStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('198754'); // Verde
+                } elseif ($reg['tipo'] === 'recuperados') {
+                    $cellStyle->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('FFC107'); // Amarelo Warning
+                    $cellStyle->getFont()->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color(\PhpOffice\PhpSpreadsheet\Style\Color::COLOR_BLACK));
                 }
                 break;
         }

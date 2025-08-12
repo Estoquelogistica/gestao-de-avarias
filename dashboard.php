@@ -36,6 +36,7 @@ unset($_SESSION['lista_produto_sucesso'], $_SESSION['lista_produto_erro'], $_SES
 // --- Listas pré-definidas para o formulário de registro ---
 $motivos_avaria = ['PRODUTO VENCIDO', 'EMBALAGEM DANIFICADA', 'ERRO DE MANUSEIO', 'PROBLEMA DE QUALIDADE', 'AVARIA NO TRANSPORTE', 'OUTROS'];
 $motivos_consumo = ['USO INTERNO (ESCRITÓRIO)', 'AMOSTRA PARA CLIENTE', 'MATERIAL DE LIMPEZA', 'DESCARTE PARA TESTE', 'DOAÇÃO', 'OUTROS'];
+$motivos_recuperados = ['REPARO INTERNO', 'DEVOLUÇÃO DO FORNECEDOR', 'RECLASSIFICAÇÃO DE ESTOQUE', 'OUTROS'];
 
 
 // --- Lógica para Registrar Nova Avaria/Consumo ---
@@ -53,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['registrar_avaria'])) 
     $usuario_id = $_SESSION['usuario_id'];
 
     // Validação dos campos obrigatórios
-    if (empty($produto_id) || empty($produto_nome) || $quantidade === false || $quantidade <= 0 || empty($lote) || empty($validade) || empty($tipo_embalagem) || !in_array($tipo_avaria, ['avaria', 'uso_e_consumo']) || empty($data_ocorrencia)) {
+    if (empty($produto_id) || empty($produto_nome) || $quantidade === false || $quantidade <= 0 || empty($lote) || empty($validade) || empty($tipo_embalagem) || !in_array($tipo_avaria, ['avaria', 'uso_e_consumo', 'recuperados']) || empty($data_ocorrencia)) {
         $_SESSION['message_error'] = "Por favor, preencha todos os campos obrigatórios.";
     } else {
         // Prepara e executa a inserção no banco de dados
@@ -223,7 +224,7 @@ $p_stmt_lista->close();
 $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
 $data_inicial = isset($_GET['data_inicial']) && !empty($_GET['data_inicial']) ? $_GET['data_inicial'] : date('Y-m-d', strtotime('-3 days'));
 $data_final = isset($_GET['data_final']) && !empty($_GET['data_final']) ? $_GET['data_final'] : date('Y-m-d');
-$tipo_historico = isset($_GET['tipo_historico']) ? $_GET['tipo_historico'] : 'todos'; // 'todos', 'avaria', 'uso_e_consumo'
+$tipo_historico = isset($_GET['tipo_historico']) ? $_GET['tipo_historico'] : 'todos'; // 'todos', 'avaria', 'uso_e_consumo', 'recuperados'
 $page = isset($_GET['page']) && is_numeric($_GET['page']) ? (int)$_GET['page'] : 1;
 $records_per_page = 15;
 $offset = ($page - 1) * $records_per_page;
@@ -284,7 +285,7 @@ $stmt_historico->close();
 $ano_selecionado = isset($_GET['ano']) ? intval($_GET['ano']) : date('Y');
 $mes_selecionado = isset($_GET['mes']) ? intval($_GET['mes']) : 0;
 $dia_selecionado = isset($_GET['dia']) && $mes_selecionado > 0 ? intval($_GET['dia']) : 0; // Dia só é válido se um mês for selecionado
-$tipo_selecionado = isset($_GET['tipo']) ? $_GET['tipo'] : 'avaria'; // 'avaria', 'uso_e_consumo', 'todos'
+$tipo_selecionado = isset($_GET['tipo']) ? $_GET['tipo'] : 'todos'; // 'avaria', 'uso_e_consumo', 'recuperados', 'todos'
 
 // Busca os anos disponíveis para o filtro
 $query_anos = "SELECT DISTINCT YEAR(data_ocorrencia) as ano FROM avarias ORDER BY ano DESC";
@@ -311,20 +312,24 @@ $types = "i";
 
 $kpi_titulo_avarias = "Avarias em " . $ano_selecionado;
 $kpi_titulo_consumo = "Uso/Consumo em " . $ano_selecionado;
+$kpi_titulo_recuperados = "Recuperados em " . $ano_selecionado;
 
 if ($mes_selecionado > 0) {
     $where_conditions[] = "MONTH(data_ocorrencia) = ?";
     $params[] = $mes_selecionado;
     $types .= "i";
-    $kpi_titulo_avarias = "Avarias em " . $meses_nomes_filtro[$mes_selecionado];
-    $kpi_titulo_consumo = "Uso/Consumo em " . $meses_nomes_filtro[$mes_selecionado];
+    $kpi_titulo_avarias = "Avarias em " . $meses_nomes_filtro[$mes_selecionado] . "/" . $ano_selecionado;
+    $kpi_titulo_consumo = "Uso/Consumo em " . $meses_nomes_filtro[$mes_selecionado] . "/" . $ano_selecionado;
+    $kpi_titulo_recuperados = "Recuperados em " . $meses_nomes_filtro[$mes_selecionado] . "/" . $ano_selecionado;
 
     if ($dia_selecionado > 0) {
         $where_conditions[] = "DAY(data_ocorrencia) = ?";
         $params[] = $dia_selecionado;
         $types .= "i";
-        $kpi_titulo_avarias = "Avarias em " . $dia_selecionado . "/" . $mes_selecionado;
-        $kpi_titulo_consumo = "Uso/Consumo em " . $dia_selecionado . "/" . $mes_selecionado;
+        $data_formatada = $dia_selecionado . "/" . $mes_selecionado . "/" . $ano_selecionado;
+        $kpi_titulo_avarias = "Avarias em " . $data_formatada;
+        $kpi_titulo_consumo = "Uso/Consumo em " . $data_formatada;
+        $kpi_titulo_recuperados = "Recuperados em " . $data_formatada;
     }
 }
 
@@ -335,7 +340,8 @@ $where_sql = "WHERE " . implode(" AND ", $where_conditions);
 // 1. KPIs (Avarias e Uso/Consumo) - Estes usam apenas o filtro de data (ano/mês)
 $sql_kpi = "SELECT 
                 SUM(CASE WHEN tipo = 'avaria' THEN 1 ELSE 0 END) AS total_avarias,
-                SUM(CASE WHEN tipo = 'uso_e_consumo' THEN 1 ELSE 0 END) AS total_consumo
+                SUM(CASE WHEN tipo = 'uso_e_consumo' THEN 1 ELSE 0 END) AS total_consumo,
+                SUM(CASE WHEN tipo = 'recuperados' THEN 1 ELSE 0 END) AS total_recuperados
             FROM avarias a {$where_sql}";
 $stmt_kpi = $conn->prepare($sql_kpi);
 $stmt_kpi->bind_param($types, ...$params);
@@ -344,13 +350,19 @@ $result_kpi = $stmt_kpi->get_result();
 $kpi_counts = $result_kpi->fetch_assoc();
 $kpi_total_avarias = $kpi_counts['total_avarias'] ?? 0;
 $kpi_total_consumo = $kpi_counts['total_consumo'] ?? 0;
+$kpi_total_recuperados = $kpi_counts['total_recuperados'] ?? 0;
 $stmt_kpi->close();
 
 // Ajusta os KPIs com base no filtro de tipo. Se 'avaria' for selecionado, zera 'consumo', e vice-versa.
 if ($tipo_selecionado === 'avaria') {
     $kpi_total_consumo = 0;
+    $kpi_total_recuperados = 0;
 } elseif ($tipo_selecionado === 'uso_e_consumo') {
     $kpi_total_avarias = 0;
+    $kpi_total_recuperados = 0;
+} elseif ($tipo_selecionado === 'recuperados') {
+    $kpi_total_avarias = 0;
+    $kpi_total_consumo = 0;
 }
 
 // 2. Construção da query para dados que usam TODOS os filtros (incluindo 'tipo')
@@ -370,6 +382,8 @@ if ($tipo_selecionado === 'avaria') {
     $volume_titulo .= " (Avarias)";
 } elseif ($tipo_selecionado === 'uso_e_consumo') {
     $volume_titulo .= " (Uso e Consumo)";
+} elseif ($tipo_selecionado === 'recuperados') {
+    $volume_titulo .= " (Recuperados)";
 }
 
 $sql_volume = "SELECT tipo_embalagem, SUM(quantidade) as total_volume FROM avarias a {$data_where_sql} GROUP BY tipo_embalagem ORDER BY total_volume DESC";
@@ -388,6 +402,7 @@ if ($stmt_volume) {
 $grafico_titulo = "Registros";
 if($tipo_selecionado === 'avaria') $grafico_titulo = "Avarias";
 if($tipo_selecionado === 'uso_e_consumo') $grafico_titulo = "Uso e Consumo";
+if($tipo_selecionado === 'recuperados') $grafico_titulo = "Recuperados";
 
 // A query para o Top 10 é a mesma para visão anual ou mensal, apenas o título e os dados do gráfico mudam.
 $sql_top10 = "SELECT a.produto_nome, p.referencia, COUNT(a.id) as total
@@ -704,15 +719,15 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
       <div id="report-container-painel">
       <!-- Cards de KPIs -->
       <div class="row mb-4">
-        <div class="col-md-4">
-            <div class="card text-white bg-primary h-100">
+        <div class="col-md-3">
+            <div class="card text-white bg-danger h-100">
                 <div class="card-body">
                     <h5 class="card-title"><i class="fas fa-box-open"></i> <?php echo $kpi_titulo_avarias; ?></h5>
                     <p class="card-text fs-1 fw-bold"><?php echo $kpi_total_avarias; ?></p>
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card text-white bg-success h-100">
                 <div class="card-body">
                     <h5 class="card-title"><i class="fas fa-shopping-cart"></i> <?php echo $kpi_titulo_consumo; ?></h5>
@@ -720,8 +735,16 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card text-white bg-warning h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="fas fa-recycle"></i> <?php echo $kpi_titulo_recuperados; ?></h5>
+                    <p class="card-text fs-1 fw-bold"><?php echo $kpi_total_recuperados; ?></p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-primary h-100">
                 <div class="card-body">
                     <h5 class="card-title"><i class="fas fa-boxes"></i> <?php echo htmlspecialchars($volume_titulo); ?></h5>
                     <?php if (!empty($dados_volume)): ?>
@@ -749,9 +772,10 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                     <h3 class="mb-0 me-3"><?php echo $grafico_titulo; ?></h3>
                     <form id="filtroForm" action="dashboard.php" method="GET" class="d-flex">
                         <select name="tipo" id="tipo" class="form-select form-select-sm me-2" style="width: auto;">
+                            <option value="todos" <?php if ($tipo_selecionado == 'todos') echo 'selected'; ?>>Todos os Tipos</option>
                             <option value="avaria" <?php if ($tipo_selecionado == 'avaria') echo 'selected'; ?>>Avarias</option>
                             <option value="uso_e_consumo" <?php if ($tipo_selecionado == 'uso_e_consumo') echo 'selected'; ?>>Uso e Consumo</option>
-                            <option value="todos" <?php if ($tipo_selecionado == 'todos') echo 'selected'; ?>>Ambos</option>
+                            <option value="recuperados" <?php if ($tipo_selecionado == 'recuperados') echo 'selected'; ?>>Recuperados</option>
                         </select>
                         <select name="ano" id="ano" class="form-select form-select-sm me-2" style="width: auto;">
                             <?php foreach ($anos_disponiveis as $ano): ?>
@@ -881,6 +905,7 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                     <select class="form-select" id="tipo_avaria" name="tipo_avaria" required>
                         <option value="avaria" selected>Avaria (Quebra, defeito, etc)</option>
                         <option value="uso_e_consumo">Uso e Consumo (Material de escritório, etc)</option>
+                        <option value="recuperados">Recuperados (Retorno ao estoque)</option>
                     </select>
                 </div>
                 <div class="col-md-6 mb-3">
@@ -1052,6 +1077,7 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                         <option value="todos" <?php if ($tipo_historico === 'todos') echo 'selected'; ?>>Todos</option>
                         <option value="avaria" <?php if ($tipo_historico === 'avaria') echo 'selected'; ?>>Avaria</option>
                         <option value="uso_e_consumo" <?php if ($tipo_historico === 'uso_e_consumo') echo 'selected'; ?>>Uso e Consumo</option>
+                        <option value="recuperados" <?php if ($tipo_historico === 'recuperados') echo 'selected'; ?>>Recuperados</option>
                     </select>
                 </div>
                 <div class="col-md-1">
@@ -1110,8 +1136,14 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                                 <td><?php echo htmlspecialchars($reg['tipo_embalagem'] ?? '-'); ?></td>
                                 <td class="text-truncate" style="max-width: 200px;" title="<?php echo htmlspecialchars($reg['motivo'] ?? ''); ?>"><?php echo htmlspecialchars($reg['motivo'] ?? '-'); ?></td>
                                 <td>
-                                    <span class="badge <?php echo $reg['tipo'] === 'avaria' ? 'bg-danger' : 'bg-success'; ?>">
-                                        <?php echo ucfirst(str_replace('_', ' ', $reg['tipo'])); ?>
+                                    <?php
+                                        $badge_class = 'bg-secondary';
+                                        if ($reg['tipo'] === 'avaria') $badge_class = 'bg-danger';
+                                        if ($reg['tipo'] === 'uso_e_consumo') $badge_class = 'bg-success';
+                                        if ($reg['tipo'] === 'recuperados') $badge_class = 'bg-warning';
+                                    ?>
+                                    <span class="badge <?php echo $badge_class; ?>">
+                                        <?php echo ucfirst(str_replace('_', ' ', $reg['tipo'] ?? 'N/D')); ?>
                                     </span>
                                 </td>
                                 <td><?php echo htmlspecialchars($reg['nome_usuario'] ?? 'N/A'); ?></td>
@@ -1537,7 +1569,8 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
         const motivoSelect = document.getElementById('motivo');
         const motivos = {
             avaria: <?php echo json_encode($motivos_avaria); ?>,
-            uso_e_consumo: <?php echo json_encode($motivos_consumo); ?>
+            uso_e_consumo: <?php echo json_encode($motivos_consumo); ?>,
+            recuperados: <?php echo json_encode($motivos_recuperados); ?>
         };
 
         function updateMotivosDropdown(tipo) {

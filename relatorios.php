@@ -13,7 +13,7 @@ $nivel_usuario = $_SESSION['usuario_nivel'] ?? 'user';
 // --- Lógica para os Filtros (Exemplo) ---
 $data_inicial = isset($_GET['data_inicial']) && !empty($_GET['data_inicial']) ? $_GET['data_inicial'] : date('Y-m-01');
 $data_final = isset($_GET['data_final']) && !empty($_GET['data_final']) ? $_GET['data_final'] : date('Y-m-d');
-$tipo_relatorio_selecionado = $_GET['tipo_relatorio'] ?? 'todos'; // 'todos', 'avaria', 'uso_e_consumo'
+$tipo_relatorio_selecionado = $_GET['tipo_relatorio'] ?? 'todos'; // 'todos', 'avaria', 'uso_e_consumo', 'recuperados'
 // --- Lógica para construção da query dinâmica com base nos filtros ---
 $where_conditions = ["data_ocorrencia BETWEEN ? AND ?"];
 $params = [$data_inicial, $data_final];
@@ -28,7 +28,8 @@ $where_sql = "WHERE " . implode(' AND ', $where_conditions);
 // --- Lógica para o Relatório de Percentual por Tipo ---
 $sql_percentual = "SELECT 
                         SUM(CASE WHEN tipo = 'avaria' THEN 1 ELSE 0 END) as total_avarias,
-                        SUM(CASE WHEN tipo = 'uso_e_consumo' THEN 1 ELSE 0 END) as total_consumo
+                        SUM(CASE WHEN tipo = 'uso_e_consumo' THEN 1 ELSE 0 END) as total_consumo,
+                        SUM(CASE WHEN tipo = 'recuperados' THEN 1 ELSE 0 END) as total_recuperado
                    FROM avarias 
                    {$where_sql}";
 $stmt_percentual = $conn->prepare($sql_percentual);
@@ -40,11 +41,43 @@ $stmt_percentual->close();
 
 $total_avarias = (int)($dados_percentual['total_avarias'] ?? 0);
 $total_consumo = (int)($dados_percentual['total_consumo'] ?? 0);
-$total_registros = $total_avarias + $total_consumo;
+$total_recuperado = (int)($dados_percentual['total_recuperado'] ?? 0);
+$total_registros = $total_avarias + $total_consumo + $total_recuperado;
 $percent_avarias = ($total_registros > 0) ? ($total_avarias / $total_registros) * 100 : 0;
 $percent_consumo = ($total_registros > 0) ? ($total_consumo / $total_registros) * 100 : 0;
-$labels_grafico_percentual_json = json_encode(['Avarias', 'Uso e Consumo']);
-$dados_grafico_percentual_json = json_encode([$total_avarias, $total_consumo]);
+$percent_recuperado = ($total_registros > 0) ? ($total_recuperado / $total_registros) * 100 : 0;
+$labels_grafico_percentual_json = json_encode(['Avarias', 'Uso e Consumo', 'Recuperados']);
+$dados_grafico_percentual_json = json_encode([$total_avarias, $total_consumo, $total_recuperado]);
+
+// --- Lógica para o Relatório de Valores (Perda x Consumo) ---
+$sql_valores = "SELECT 
+                    a.tipo,
+                    SUM(a.quantidade * COALESCE(p.preco_venda, 0)) as total_valor
+                FROM avarias a
+                LEFT JOIN produtos p ON a.produto_id = p.id
+                {$where_sql}
+                GROUP BY a.tipo";
+$stmt_valores = $conn->prepare($sql_valores);
+$stmt_valores->bind_param($types, ...$params);
+$stmt_valores->execute();
+$result_valores = $stmt_valores->get_result();
+$dados_valores = $result_valores->fetch_all(MYSQLI_ASSOC);
+$stmt_valores->close();
+
+$valor_total_avarias = (float) (array_values(array_filter($dados_valores, fn($v) => $v['tipo'] === 'avaria'))[0]['total_valor'] ?? 0);
+$valor_total_consumo = (float) (array_values(array_filter($dados_valores, fn($v) => $v['tipo'] === 'uso_e_consumo'))[0]['total_valor'] ?? 0);
+$valor_total_recuperado = (float) (array_values(array_filter($dados_valores, fn($v) => $v['tipo'] === 'recuperados'))[0]['total_valor'] ?? 0);
+$labels_grafico_valores_json = json_encode(['Perdas (R$)', 'Uso e Consumo (R$)', 'Recuperados (R$)']);
+$dados_grafico_valores = [$valor_total_avarias, $valor_total_consumo, $valor_total_recuperado];
+$dados_grafico_valores_json = json_encode($dados_grafico_valores);
+
+// Adiciona cálculo do valor máximo para o eixo Y para evitar que o rótulo de dados seja cortado no topo.
+$max_valor = 0;
+if (!empty($dados_grafico_valores)) {
+    $max_valor = max($dados_grafico_valores);
+}
+$y_axis_max_valores = ceil($max_valor * 1.25); // Adiciona 25% de espaço no topo.
+if ($y_axis_max_valores < 10) { $y_axis_max_valores = 10; } // Garante um valor mínimo para o eixo.
 
 // --- Lógica para o Relatório de Motivos ---
 
@@ -86,12 +119,13 @@ $sql_ruas = "SELECT
                     ELSE SUBSTRING(p.endereco, 1, 2)
                 END as rua,                
                 SUM(CASE WHEN a.tipo = 'avaria' THEN a.quantidade ELSE 0 END) as total_avaria,
-                SUM(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.quantidade ELSE 0 END) as total_consumo
+                SUM(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.quantidade ELSE 0 END) as total_consumo,
+                SUM(CASE WHEN a.tipo = 'recuperados' THEN a.quantidade ELSE 0 END) as total_recuperado
             FROM avarias a
             LEFT JOIN produtos p ON a.produto_id = p.id
             {$where_sql}
             GROUP BY rua
-            ORDER BY (SUM(CASE WHEN a.tipo = 'avaria' THEN a.quantidade ELSE 0 END) + SUM(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.quantidade ELSE 0 END)) DESC";
+            ORDER BY (SUM(CASE WHEN a.tipo = 'avaria' THEN a.quantidade ELSE 0 END) + SUM(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.quantidade ELSE 0 END) + SUM(CASE WHEN a.tipo = 'recuperados' THEN a.quantidade ELSE 0 END)) DESC";
 $stmt_ruas = $conn->prepare($sql_ruas);
 $stmt_ruas->bind_param($types, ...$params);
 $stmt_ruas->execute();
@@ -103,10 +137,11 @@ $stmt_ruas->close();
 $labels_grafico_ruas = [];
 $dados_grafico_ruas_avaria = [];
 $dados_grafico_ruas_consumo = [];
+$dados_grafico_ruas_recuperado = [];
 $total_geral_ruas = 0;
 
 foreach ($dados_ruas as $rua) {
-    $total_rua = (int)$rua['total_avaria'] + (int)$rua['total_consumo'];
+    $total_rua = (int)$rua['total_avaria'] + (int)$rua['total_consumo'] + (int)$rua['total_recuperado'];
     // Adiciona a rua ao gráfico apenas se houver algum valor a ser mostrado
     if ($total_rua > 0) {
         if ($rua['rua'] === 'Sem Endereço') {
@@ -116,31 +151,36 @@ foreach ($dados_ruas as $rua) {
         }
         $dados_grafico_ruas_avaria[] = (int)$rua['total_avaria'];
         $dados_grafico_ruas_consumo[] = (int)$rua['total_consumo'];
+        $dados_grafico_ruas_recuperado[] = (int)$rua['total_recuperado'];
         $total_geral_ruas += $total_rua;
     }
 }
+
+// Calcula os totais para cada tipo de registro para usar no cálculo de percentual do gráfico de ruas.
+$total_avarias_ruas = array_sum($dados_grafico_ruas_avaria);
+$total_consumo_ruas = array_sum($dados_grafico_ruas_consumo);
+$total_recuperado_ruas = array_sum($dados_grafico_ruas_recuperado);
 
 // Calcula uma altura dinâmica para o gráfico para evitar que as barras fiquem espremidas.
 $num_ruas = count($labels_grafico_ruas);
 $altura_grafico_ruas = max(450, $num_ruas * 35 + 120); // Mínimo 450px, 35px por rua + 120px para eixos/legenda.
 
-// Encontra o valor máximo nos dados para ajustar o eixo X e dar espaço aos rótulos.
+// Encontra o valor máximo para o eixo X (maior valor individual entre todas as barras)
 $max_ruas_value = 0;
-if (!empty($dados_grafico_ruas_avaria)) {
-    $max_ruas_value = max($max_ruas_value, max($dados_grafico_ruas_avaria));
+$all_ruas_values = array_merge($dados_grafico_ruas_avaria, $dados_grafico_ruas_consumo, $dados_grafico_ruas_recuperado);
+if (!empty($all_ruas_values)) {
+    $max_ruas_value = max($all_ruas_values);
 }
-if (!empty($dados_grafico_ruas_consumo)) {
-    $max_ruas_value = max($max_ruas_value, max($dados_grafico_ruas_consumo));
-}
-// Adiciona uma margem de 30% ao valor máximo para garantir que os rótulos caibam.
-// O fator de 1.30 pode ser ajustado se os rótulos ainda estiverem sendo cortados.
-$x_axis_max_ruas = ceil($max_ruas_value * 1.30);
+// Adiciona uma margem de 45% ao valor máximo para garantir que os rótulos com percentual caibam.
+// O fator pode ser ajustado se os rótulos ainda estiverem sendo cortados.
+$x_axis_max_ruas = ceil($max_ruas_value * 1.45);
 if ($x_axis_max_ruas < 5) { // Garante um valor mínimo para o eixo.
     $x_axis_max_ruas = 5;
 }
 $labels_grafico_ruas_json = json_encode($labels_grafico_ruas);
 $dados_grafico_ruas_avaria_json = json_encode($dados_grafico_ruas_avaria);
 $dados_grafico_ruas_consumo_json = json_encode($dados_grafico_ruas_consumo);
+$dados_grafico_ruas_recuperado_json = json_encode($dados_grafico_ruas_recuperado);
 
 // --- Lógica para o Relatório de Tendência por Produto ---
 $produto_ids_tendencia = [];
@@ -362,6 +402,10 @@ if (!empty($produto_ids_tendencia)) {
                 <input class="form-check-input report-toggle-checkbox" type="checkbox" role="switch" id="toggle-tendencia" data-target="#report-tendencia" checked>
                 <label class="form-check-label" for="toggle-tendencia">Tendência por Produto</label>
             </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input report-toggle-checkbox" type="checkbox" role="switch" id="toggle-valores" data-target="#report-valores" checked>
+                <label class="form-check-label" for="toggle-valores">Análise de Custo (Valor)</label>
+            </div>
             <!-- Adicione novos checkboxes para futuros relatórios aqui -->
         </div>
     </div>
@@ -382,9 +426,10 @@ if (!empty($produto_ids_tendencia)) {
                 <div class="col-md-2">
                     <label for="tipo_relatorio" class="form-label">Tipo</label>
                     <select name="tipo_relatorio" id="tipo_relatorio" class="form-select">
-                        <option value="todos" <?php if ($tipo_relatorio_selecionado === 'todos') echo 'selected'; ?>>Ambos</option>
+                        <option value="todos" <?php if ($tipo_relatorio_selecionado === 'todos') echo 'selected'; ?>>Todos</option>
                         <option value="avaria" <?php if ($tipo_relatorio_selecionado === 'avaria') echo 'selected'; ?>>Avaria</option>
                         <option value="uso_e_consumo" <?php if ($tipo_relatorio_selecionado === 'uso_e_consumo') echo 'selected'; ?>>Uso e Consumo</option>
+                        <option value="recuperados" <?php if ($tipo_relatorio_selecionado === 'recuperados') echo 'selected'; ?>>Recuperados</option>
                     </select>
                 </div>
                 <div class="col-md-2">
@@ -409,7 +454,7 @@ if (!empty($produto_ids_tendencia)) {
                 </div>
                 <?php if (!empty($dados_motivos)): ?>
                     <div class="row align-items-center gx-5">
-                        <div class="col-lg-6" style="min-height: 300px;">
+                        <div class="col-lg-6" style="position: relative; min-height: 300px;">
                             <canvas id="graficoMotivos"></canvas>
                         </div>
                         <div class="col-lg-6">
@@ -447,7 +492,7 @@ if (!empty($produto_ids_tendencia)) {
                 </div>
                 <?php if ($total_registros > 0): ?>
                     <div class="row align-items-center h-100">
-                        <div class="col-lg-6" style="min-height: 250px;">
+                        <div class="col-lg-6" style="position: relative; min-height: 250px;">
                             <canvas id="graficoPercentual"></canvas>
                         </div>
                         <div class="col-lg-6">
@@ -458,6 +503,10 @@ if (!empty($produto_ids_tendencia)) {
                             <p class="mb-0 percent-text">
                                 <i class="fas fa-circle text-success me-2"></i>
                                 <strong>Uso/Consumo:</strong> <?php echo $total_consumo; ?> (<?php echo number_format($percent_consumo, 1, ',', '.'); ?>%)
+                            </p>
+                            <p class="mb-0 percent-text">
+                                <i class="fas fa-circle text-warning me-2"></i>
+                                <strong>Recuperados:</strong> <?php echo $total_recuperado; ?> (<?php echo number_format($percent_recuperado, 1, ',', '.'); ?>%)
                             </p>
                         </div>
                     </div>
@@ -471,7 +520,7 @@ if (!empty($produto_ids_tendencia)) {
     <!-- Adicione mais seções de relatórios aqui -->
     <div class="content-section mt-4" id="report-ruas">
         <div class="report-header">
-            <h3>Performance por Rua (Avaria vs. Consumo)</h3>
+            <h3>Performance por Rua</h3>
             <button class="btn btn-sm btn-outline-secondary btn-copy-report" data-container-id="report-ruas" data-feedback-id="feedback-ruas" title="Copiar relatório como imagem"><i class="fas fa-camera"></i></button>
             <span class="copy-feedback" id="feedback-ruas">Copiado!</span>
         </div>
@@ -482,6 +531,44 @@ if (!empty($produto_ids_tendencia)) {
             </div>
         <?php else: ?>
             <p class="text-muted mt-3">Nenhum dado de endereço encontrado para o período e filtros selecionados.</p>
+        <?php endif; ?>
+    </div>
+
+    <!-- Relatório de Valores (Perda x Consumo) -->
+    <div class="content-section mt-4" id="report-valores">
+        <div class="report-header">
+            <h3>Análise de Custo</h3>
+            <button class="btn btn-sm btn-outline-secondary btn-copy-report" data-container-id="report-valores" data-feedback-id="feedback-valores" title="Copiar relatório como imagem"><i class="fas fa-camera"></i></button>
+            <span class="copy-feedback" id="feedback-valores">Copiado!</span>
+        </div>
+        <p class="text-muted">Comparativo do valor monetário total (baseado no `preco_venda`) entre os tipos de registro.</p>
+        <?php if ($valor_total_avarias > 0 || $valor_total_consumo > 0 || $valor_total_recuperado > 0): ?>
+            <div class="row">
+                <div class="col-12" style="height: 350px;">
+                    <canvas id="graficoValores"></canvas>
+                </div>
+            </div>
+            <div class="row mt-4">
+                <div class="col-lg-8 offset-lg-2">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Tipo de Custo</th>
+                                    <th class="text-end">Valor Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td><i class="fas fa-circle text-danger me-2"></i>Perdas (Avarias)</td><td class="text-end"><strong><?php echo 'R$ ' . number_format($valor_total_avarias, 2, ',', '.'); ?></strong></td></tr>
+                                <tr><td><i class="fas fa-circle text-success me-2"></i>Uso e Consumo</td><td class="text-end"><strong><?php echo 'R$ ' . number_format($valor_total_consumo, 2, ',', '.'); ?></strong></td></tr>
+                                <tr><td><i class="fas fa-circle text-warning me-2"></i>Recuperados</td><td class="text-end"><strong><?php echo 'R$ ' . number_format($valor_total_recuperado, 2, ',', '.'); ?></strong></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        <?php else: ?>
+            <p class="text-muted mt-3">Nenhum valor encontrado para o período. Verifique se os produtos registrados possuem `preco_venda` cadastrado.</p>
         <?php endif; ?>
     </div>
 
@@ -618,7 +705,7 @@ if (!empty($produto_ids_tendencia)) {
                     datasets: [{
                         label: 'Registros por Tipo',
                         data: <?php echo $dados_grafico_percentual_json; ?>,
-                        backgroundColor: ['#dc3545', '#198754'],
+                        backgroundColor: ['#dc3545', '#198754', '#ffc107'],
                         hoverOffset: 4
                     }]
                 },
@@ -636,6 +723,59 @@ if (!empty($produto_ids_tendencia)) {
                             },
                             color: '#fff',
                             font: { weight: 'bold', size: 14 }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Gráfico de Valores (Perda x Consumo)
+        const ctxValores = document.getElementById('graficoValores')?.getContext('2d');
+        if (ctxValores) {
+            new Chart(ctxValores, {
+                type: 'bar', // Alterado para 'bar'
+                data: {
+                    labels: <?php echo $labels_grafico_valores_json; ?>,
+                    datasets: [{
+                        label: 'Valor em R$',
+                        data: <?php echo $dados_grafico_valores_json; ?>,
+                        backgroundColor: ['#dc3545', '#198754', '#ffc107'],
+                        borderColor: ['#dc3545', '#198754', '#ffc107'],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            max: <?php echo $y_axis_max_valores; ?>,
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(tooltipItem) {
+                                    return ' ' + new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(tooltipItem.raw);
+                                }
+                            }
+                        },
+                        datalabels: {
+                            anchor: 'end',
+                            align: 'top',
+                            formatter: (value, context) => {
+                                if (value > 0) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value); }
+                                return null;
+                            },
+                            color: '#444',
+                            font: { weight: 'bold' }
                         }
                     }
                 }
@@ -663,21 +803,35 @@ if (!empty($produto_ids_tendencia)) {
                             backgroundColor: 'rgba(25, 135, 84, 0.8)', // Verde
                             borderColor: 'rgba(25, 135, 84, 1)',
                             borderWidth: 1
+                        },
+                        {
+                            label: 'Recuperados',
+                            data: <?php echo $dados_grafico_ruas_recuperado_json; ?>,
+                            backgroundColor: 'rgba(255, 193, 7, 0.8)', // Amarelo Warning
+                            borderColor: 'rgba(255, 193, 7, 1)',
+                            borderWidth: 1
                         }
                     ]
                 },
                 options: {
                     indexAxis: 'y', // Mantém o gráfico de barras horizontal
                     responsive: true,
+                    layout: {
+                        padding: {
+                            left: 25 // Adiciona um preenchimento à esquerda para garantir que rótulos longos não sejam cortados.
+                        }
+                    },
                     maintainAspectRatio: false,
                     scales: {
                         x: {
+                            stacked: false,
                             beginAtZero: true,
                             title: { display: true, text: 'Quantidade Total de Itens' },
                             max: <?php echo $x_axis_max_ruas; ?> // Define o valor máximo do eixo X para dar espaço aos rótulos
                         },
                         y: {
-                            // No stacking for grouped bars
+                            stacked: false,
+                            title: { display: true, text: 'Setor/Rua' }
                         }
                     },
                     plugins: {
@@ -685,10 +839,21 @@ if (!empty($produto_ids_tendencia)) {
                         datalabels: {
                             formatter: (value, ctx) => {
                                 if (value <= 0) return null;
-                                const totalGeral = <?php echo $total_geral_ruas; ?>;
-                                if (totalGeral === 0) return value;
-                                const percentage = (value / totalGeral) * 100;
-                                // Retorna o valor e a porcentagem formatada (ex: 50 (15,5%))
+
+                                // Define os totais de cada categoria (passados do PHP)
+                                const totais = {
+                                    'Avarias': <?php echo $total_avarias_ruas; ?>,
+                                    'Uso e Consumo': <?php echo $total_consumo_ruas; ?>,
+                                    'Recuperados': <?php echo $total_recuperado_ruas; ?>
+                                };
+                                
+                                const totalCategoria = totais[ctx.dataset.label] || 0;
+
+                                if (totalCategoria === 0) {
+                                    return value; // Evita divisão por zero
+                                }
+
+                                const percentage = (value / totalCategoria) * 100;
                                 return `${value} (${percentage.toFixed(1).replace('.', ',')}%)`;
                             },
                             color: '#444', // Cor escura para ser legível fora da barra
@@ -732,10 +897,12 @@ if (!empty($produto_ids_tendencia)) {
                             // Monta a tabela com os resultados
                             if (items.length > 0) {
                                 let tableHtml = '<table class="table table-sm table-striped"><thead><tr><th>Produto</th><th class="text-center">Qtd.</th><th>Tipo</th><th>Data</th></tr></thead><tbody>';
-                                items.forEach(item => {
-                                    const tipoBadge = item.tipo === 'avaria' 
-                                        ? '<span class="badge bg-danger">Avaria</span>' 
-                                        : '<span class="badge bg-success">Uso/Consumo</span>';
+                                items.forEach(item => {                                    
+                                    let tipoBadge = '<span class="badge bg-secondary">N/D</span>';
+                                    if (item.tipo === 'avaria') tipoBadge = '<span class="badge bg-danger">Avaria</span>';
+                                    if (item.tipo === 'uso_e_consumo') tipoBadge = '<span class="badge bg-success">Uso/Consumo</span>';
+                                    if (item.tipo === 'recuperados') tipoBadge = '<span class="badge bg-warning">Recuperados</span>';
+
                                     const dataFormatada = new Date(item.data_ocorrencia + 'T00:00:00').toLocaleDateString('pt-BR');
 
                                     tableHtml += `

@@ -119,6 +119,8 @@ $html = '
         }
         .bg-danger { background-color: #dc3545; }
         .bg-success { background-color: #198754; }
+        .bg-info { background-color: #0dcaf0; }
+        .bg-warning { background-color: #ffc107; color: #000 !important; } /* Adicionado */
         .text-center { text-align: center; }
         .text-nowrap { white-space: nowrap; }
         tfoot td {
@@ -166,7 +168,14 @@ if (count($registros) > 0) {
                     $class = 'text-center text-nowrap';
                     break;
                 case 'tipo':
-                    $tipo_classe = $reg['tipo'] === 'avaria' ? 'bg-danger' : 'bg-success';
+                    $tipo_classe = 'bg-secondary';
+                    if ($reg['tipo'] === 'avaria') {
+                        $tipo_classe = 'bg-danger';
+                    } elseif ($reg['tipo'] === 'uso_e_consumo') {
+                        $tipo_classe = 'bg-success';
+                    } elseif ($reg['tipo'] === 'recuperados') {
+                        $tipo_classe = 'bg-warning';
+                    }
                     $tipo_texto = ucfirst(str_replace('_', ' ', $reg['tipo']));
                     $value = '<span class="badge ' . $tipo_classe . '">' . $tipo_texto . '</span>';
                     $class = 'text-center';
