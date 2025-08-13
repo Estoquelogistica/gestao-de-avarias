@@ -405,7 +405,7 @@ if($tipo_selecionado === 'uso_e_consumo') $grafico_titulo = "Uso e Consumo";
 if($tipo_selecionado === 'recuperados') $grafico_titulo = "Recuperados";
 
 // A query para o Top 10 é a mesma para visão anual ou mensal, apenas o título e os dados do gráfico mudam.
-$sql_top10 = "SELECT a.produto_nome, p.referencia, COUNT(a.id) as total
+$sql_top10 = "SELECT a.produto_id, a.produto_nome, p.referencia, COUNT(a.id) as total
               FROM avarias a
               LEFT JOIN produtos p ON a.produto_id = p.id
               {$data_where_sql}
@@ -814,7 +814,13 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                 <ol class="list-group list-group-numbered top-10-list">
                     <?php if ($result_top10 && $result_top10->num_rows > 0): ?>
                         <?php while($item = $result_top10->fetch_assoc()): ?>
-                            <li class="list-group-item d-flex justify-content-between align-items-start">
+                            <li class="list-group-item d-flex justify-content-between align-items-start"
+                                data-bs-toggle="modal" 
+                                data-bs-target="#productDetailsModal" 
+                                data-product-id="<?php echo $item['produto_id']; ?>" 
+                                data-product-name="<?php echo htmlspecialchars($item['produto_nome']); ?>"
+                                style="cursor: pointer;"
+                                title="Clique para ver os detalhes">
                                 <div class="ms-2 me-auto">
                                     <div class="fw-bold text-truncate" title="<?php echo htmlspecialchars($item['produto_nome']); ?>">
                                         <?php echo htmlspecialchars($item['produto_nome']); ?>
@@ -1198,6 +1204,29 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
             </ul>
         </nav>
         <?php endif; ?>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Detalhes do Produto (Top 10) -->
+  <div class="modal fade" id="productDetailsModal" tabindex="-1" aria-labelledby="productDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="productDetailsModalLabel">Detalhes do Produto</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body" id="productDetailsModalBody">
+          <!-- O conteúdo será preenchido via JavaScript -->
+          <div class="text-center">
+            <div class="spinner-border" role="status">
+              <span class="visually-hidden">Carregando...</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1785,6 +1814,69 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
         if (formColunasExport) formColunasExport.addEventListener('change', updateExportLinks);
         updateExportLinks(); // Chamada inicial para configurar os links com os padrões
     });
+
+    // --- LÓGICA PARA O MODAL DE DETALHES DO TOP 10 ---
+    const productDetailsModal = document.getElementById('productDetailsModal');
+    if (productDetailsModal) {
+        productDetailsModal.addEventListener('show.bs.modal', async function (event) {
+            const listItem = event.relatedTarget; // O item <li> que acionou o modal
+            const productId = listItem.dataset.productId;
+            const productName = listItem.dataset.productName;
+
+            const modalTitle = productDetailsModal.querySelector('.modal-title');
+            const modalBody = productDetailsModal.querySelector('.modal-body');
+
+            modalTitle.textContent = `Registros para: ${productName}`;
+            modalBody.innerHTML = '<div class="text-center p-4"><div class="spinner-border" role="status"><span class="visually-hidden">Carregando...</span></div></div>';
+
+            // Pega os filtros atuais do painel
+            const ano = document.getElementById('ano').value;
+            const mes = document.getElementById('mes').value;
+            const dia = document.getElementById('dia').value;
+            const tipo = document.getElementById('tipo').value;
+
+            try {
+                const url = `api_get_details_by_product.php?product_id=${productId}&ano=${ano}&mes=${mes}&dia=${dia}&tipo=${tipo}`;
+                const response = await fetch(url);
+                const items = await response.json();
+
+                if (items.error) {
+                    throw new Error(items.error);
+                }
+
+                if (items.length > 0) {
+                    let tableHtml = '<table class="table table-sm table-striped table-hover"><thead><tr><th>Data Ocorr.</th><th class="text-center">Qtd.</th><th>Lote</th><th>Motivo</th><th class="text-center">Tipo</th><th>Registrado Por</th></tr></thead><tbody>';
+                    items.forEach(item => {
+                        let tipoBadge = '<span class="badge bg-secondary">N/D</span>';
+                        if (item.tipo === 'avaria') tipoBadge = '<span class="badge bg-danger">Avaria</span>';
+                        if (item.tipo === 'uso_e_consumo') tipoBadge = '<span class="badge bg-success">Uso/Consumo</span>';
+                        if (item.tipo === 'recuperados') tipoBadge = '<span class="badge bg-warning text-dark">Recuperados</span>';
+
+                        const dataFormatada = new Date(item.data_ocorrencia + 'T00:00:00').toLocaleDateString('pt-BR');
+
+                        tableHtml += `
+                            <tr>
+                                <td>${dataFormatada}</td>
+                                <td class="text-center">${item.quantidade}</td>
+                                <td>${item.lote || '-'}</td>
+                                <td class="text-truncate" style="max-width: 200px;" title="${item.motivo || ''}">${item.motivo || '-'}</td>
+                                <td class="text-center">${tipoBadge}</td>
+                                <td>${item.nome_usuario || 'N/A'}</td>
+                            </tr>
+                        `;
+                    });
+                    tableHtml += '</tbody></table>';
+                    modalBody.innerHTML = tableHtml;
+                } else {
+                    modalBody.innerHTML = '<p class="text-center p-4">Nenhum registro encontrado para este produto nos filtros selecionados.</p>';
+                }
+
+            } catch (error) {
+                console.error('Erro ao buscar detalhes do produto:', error);
+                modalBody.innerHTML = `<div class="alert alert-danger">Erro ao carregar os dados: ${error.message}</div>`;
+            }
+        });
+    }
   </script>
   <?php $conn->close(); // Fecha a conexão com o banco de dados no final do script ?>
 </body>
