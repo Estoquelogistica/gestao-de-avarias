@@ -251,6 +251,7 @@ if (!empty($produto_ids_tendencia)) {
     $stmt_tendencia->execute();
     $result_tendencia = $stmt_tendencia->get_result();
     $dados_tendencia_raw = $result_tendencia->fetch_all(MYSQLI_ASSOC);
+    error_log("Dados de tendência brutos para agrupamento {$agrupamento_tendencia}: " . json_encode($dados_tendencia_raw)); // NEW LOG
     $stmt_tendencia->close();
 
     // 4. Processar dados brutos para o formato do Chart.js
@@ -292,6 +293,7 @@ if (!empty($produto_ids_tendencia)) {
 
     $dados_grafico_tendencia_json = json_encode(['labels' => $labels_grafico_tendencia, 'datasets' => $datasets]);
 }
+
 ?>
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -578,6 +580,8 @@ if (!empty($produto_ids_tendencia)) {
             <h3>Relatório de Tendência por Produto</h3>
             <button class="btn btn-sm btn-outline-secondary btn-copy-report" data-container-id="report-tendencia" data-feedback-id="feedback-tendencia" title="Copiar relatório como imagem"><i class="fas fa-camera"></i></button>
             <span class="copy-feedback" id="feedback-tendencia">Copiado!</span>
+            <!-- New button here -->
+            <button class="btn btn-sm btn-outline-danger ms-2" id="clear-tendencia-selection" title="Limpar seleção de produtos"><i class="fas fa-times-circle"></i> Limpar Seleção</button>
         </div>
         <p class="text-muted">Selecione até 3 produtos para comparar a tendência de registros ao longo do tempo.</p>
         
@@ -988,11 +992,34 @@ if (!empty($produto_ids_tendencia)) {
 
         // Helper: Recarrega a página com a lista de IDs de produtos atualizada.
         function reloadWithProductIds(productIds) {
+            console.log('reloadWithProductIds called with productIds:', productIds); // Log 1
             const url = new URL(window.location.href);
-            url.searchParams.delete('produto_ids_tendencia[]'); // Limpa os parâmetros existentes
-            productIds.forEach(id => {
-                url.searchParams.append('produto_ids_tendencia[]', id);
+            const newSearchParams = new URLSearchParams();
+
+            // Get current 'tendencia_agrupamento' if it exists
+            const currentAgrupamento = url.searchParams.get('tendencia_agrupamento');
+            console.log('Current agrupamento before reload:', currentAgrupamento); // NEW LOG
+
+            // Copia os parâmetros existentes, excluindo 'produto_ids_tendencia[]' e 'tendencia_agrupamento'
+            url.searchParams.forEach((value, key) => {
+                if (!key.startsWith('produto_ids_tendencia') && key !== 'tendencia_agrupamento') { // MODIFIED CONDITION
+                    newSearchParams.append(key, value);
+                }
             });
+
+            // Adiciona os IDs de produtos atualizados
+            productIds.forEach(id => {
+                newSearchParams.append('produto_ids_tendencia[]', id);
+            });
+
+            // Re-add the 'tendencia_agrupamento' if it was present
+            if (currentAgrupamento) {
+                newSearchParams.append('tendencia_agrupamento', currentAgrupamento);
+            }
+            
+            url.search = newSearchParams.toString();
+            console.log('Final URL search params:', url.search); // Log 3
+            console.log('Final URL:', url.toString()); // Log 4
             window.location.href = url.pathname + url.search + '#report-tendencia';
         }
 
@@ -1020,8 +1047,8 @@ if (!empty($produto_ids_tendencia)) {
         // Evento para REMOVER um produto ao clicar no 'x'
         selectedProductsContainer.addEventListener('click', (e) => {
             if (e.target.classList.contains('remove-tendencia-product')) {
-                const productIdToRemove = e.target.dataset.id;
-                let currentIds = getCurrentSelectedIds();
+                const productIdToRemove = parseInt(e.target.dataset.id);
+                let currentIds = getCurrentSelectedIds().map(id => parseInt(id));
                 currentIds = currentIds.filter(id => id !== productIdToRemove);
                 reloadWithProductIds(currentIds);
             }
@@ -1156,6 +1183,31 @@ if (!empty($produto_ids_tendencia)) {
             // Remove a classe que esconde o corpo da página, tornando-o visível
             // já na posição correta e evitando o "salto".
             document.body.classList.remove('is-loading');
+        });
+
+        // Nova função para limpar a seleção de produtos da tendência
+        document.getElementById('clear-tendencia-selection')?.addEventListener('click', () => {
+            const url = new URL(window.location.href);
+            const newSearchParams = new URLSearchParams();
+
+            // Get current 'tendencia_agrupamento' if it exists
+            const currentAgrupamento = url.searchParams.get('tendencia_agrupamento');
+
+            // Copia todos os parâmetros existentes, exceto 'produto_ids_tendencia[]' e 'tendencia_agrupamento'
+            url.searchParams.forEach((value, key) => {
+                if (!key.startsWith('produto_ids_tendencia') && key !== 'tendencia_agrupamento') { // MODIFIED CONDITION
+                    newSearchParams.append(key, value);
+                }
+            });
+            
+            // Re-add the 'tendencia_agrupamento' if it was present
+            if (currentAgrupamento) {
+                newSearchParams.append('tendencia_agrupamento', currentAgrupamento);
+            }
+
+            url.search = newSearchParams.toString();
+            url.hash = '#report-tendencia'; // Mantém o scroll na seção
+            window.location.href = url.toString();
         });
     });
   </script>
