@@ -118,14 +118,14 @@ $sql_ruas = "SELECT
                     WHEN UPPER(SUBSTRING(p.endereco, 1, 1)) = 'K' THEN '11'
                     ELSE SUBSTRING(p.endereco, 1, 2)
                 END as rua,                
-                SUM(CASE WHEN a.tipo = 'avaria' THEN a.quantidade ELSE 0 END) as total_avaria,
-                SUM(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.quantidade ELSE 0 END) as total_consumo,
-                SUM(CASE WHEN a.tipo = 'recuperados' THEN a.quantidade ELSE 0 END) as total_recuperado
+                COUNT(CASE WHEN a.tipo = 'avaria' THEN a.id ELSE NULL END) as total_avaria,
+                COUNT(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.id ELSE NULL END) as total_consumo,
+                COUNT(CASE WHEN a.tipo = 'recuperados' THEN a.id ELSE NULL END) as total_recuperado
             FROM avarias a
             LEFT JOIN produtos p ON a.produto_id = p.id
             {$where_sql}
             GROUP BY rua
-            ORDER BY (SUM(CASE WHEN a.tipo = 'avaria' THEN a.quantidade ELSE 0 END) + SUM(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.quantidade ELSE 0 END) + SUM(CASE WHEN a.tipo = 'recuperados' THEN a.quantidade ELSE 0 END)) DESC";
+            ORDER BY (COUNT(CASE WHEN a.tipo = 'avaria' THEN a.id ELSE NULL END) + COUNT(CASE WHEN a.tipo = 'uso_e_consumo' THEN a.id ELSE NULL END) + COUNT(CASE WHEN a.tipo = 'recuperados' THEN a.id ELSE NULL END)) DESC";
 $stmt_ruas = $conn->prepare($sql_ruas);
 $stmt_ruas->bind_param($types, ...$params);
 $stmt_ruas->execute();
@@ -524,7 +524,7 @@ if (!empty($produto_ids_tendencia)) {
             <button class="btn btn-sm btn-outline-secondary btn-copy-report" data-container-id="report-ruas" data-feedback-id="feedback-ruas" title="Copiar relatório como imagem"><i class="fas fa-camera"></i></button>
             <span class="copy-feedback" id="feedback-ruas">Copiado!</span>
         </div>
-        <p class="text-muted">Gráfico de barras empilhadas mostrando o volume de itens por tipo em cada setor do depósito.</p>
+        <p class="text-muted">Gráfico de barras empilhadas mostrando a quantidade de registros por tipo em cada setor do depósito.</p>
         <?php if (!empty($dados_ruas)): ?>
             <div style="height: <?php echo $altura_grafico_ruas; ?>px; width: 100%;">
                 <canvas id="graficoRuas"></canvas>
