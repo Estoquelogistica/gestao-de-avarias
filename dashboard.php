@@ -503,6 +503,7 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     /* Estilos extraídos do seu arquivo de referência */
     body {
@@ -868,9 +869,12 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                 <div class="col-md-8 mb-3">
                     <label for="codigo_produto_avaria" class="form-label">Código do Produto</label>
                     <div class="input-group">
-                        <input type="text" class="form-control" id="codigo_produto_avaria" placeholder="Digite o código ou clique na lupa para buscar">
+                        <input type="text" class="form-control" id="codigo_produto_avaria" placeholder="Digite o código, busque na lupa ou leia com a câmera">
                         <button class="btn btn-outline-secondary" type="button" id="btn-open-search-modal" title="Buscar produto">
                             <i class="fas fa-search"></i>
+                        </button>
+                        <button class="btn btn-outline-primary" type="button" id="btn-open-scanner-modal" title="Ler código de barras">
+                            <i class="fas fa-camera"></i>
                         </button>
                     </div>
                 </div>
@@ -958,9 +962,12 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
 
         <!-- Formulário de Busca de Produtos -->
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <form action="dashboard.php#lista-produtos" method="GET" class="input-group" style="max-width: 500px;">
-                <input type="text" name="p_search" class="form-control" placeholder="Buscar por código, descrição, referência, endereço..." value="<?php echo htmlspecialchars($p_search_term); ?>">
-                <button class="btn btn-primary" type="submit"><i class="fas fa-search"></i> Buscar</button>
+            <form action="dashboard.php#lista-produtos" method="GET" id="form-lista-produtos" class="input-group" style="max-width: 500px;">
+                <input type="text" name="p_search" id="p_search_input" class="form-control" placeholder="Buscar por código, descrição, referência, endereço..." value="<?php echo htmlspecialchars($p_search_term); ?>">
+                <button class="btn btn-primary" type="submit" title="Buscar"><i class="fas fa-search"></i></button>
+                <button class="btn btn-outline-primary" type="button" id="btn-open-scanner-list-modal" title="Ler código de barras para buscar">
+                    <i class="fas fa-camera"></i>
+                </button>
                 <?php if (!empty($p_search_term)): ?>
                     <a href="dashboard.php#lista-produtos" class="btn btn-outline-secondary">Limpar</a>
                 <?php endif; ?>
@@ -1420,6 +1427,25 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
     </div>
   </div>
 
+  <!-- Modal do Scanner de Código de Barras -->
+  <div class="modal fade" id="scannerModal" tabindex="-1" aria-labelledby="scannerModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="scannerModalLabel">Scanner de Código de Barras</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div id="reader" style="width: 100%;"></div>
+          <div id="scanner-status" class="mt-2 text-center"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
@@ -1754,6 +1780,82 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                 modalResultsContainer.innerHTML = ''; // Limpa os resultados
             }
         });
+
+        // --- LÓGICA PARA O SCANNER DE CÓDIGO DE BARRAS (Refatorado) ---
+        const scannerModalEl = document.getElementById('scannerModal');
+        let html5QrCode;
+        let onScanSuccessCallback = null; // Variável para armazenar o callback de sucesso
+
+        if (scannerModalEl) {
+            const scannerModal = new bootstrap.Modal(scannerModalEl);
+            const scannerStatusEl = document.getElementById('scanner-status');
+
+            // Função genérica chamada quando um código de barras é lido com sucesso
+            const onScanSuccess = (decodedText, decodedResult) => {
+                if (html5QrCode && html5QrCode.isScanning) {
+                    html5QrCode.stop().catch(err => console.error("Falha ao parar o scanner.", err));
+                }
+                scannerModal.hide();
+
+                // Executa o callback específico que foi definido
+                if (typeof onScanSuccessCallback === 'function') {
+                    onScanSuccessCallback(decodedText);
+                }
+            };
+
+            const onScanFailure = (error) => { /* Ignorar */ };
+
+            // Função para iniciar o scanner com um callback específico
+            function startScanner(successCallback) {
+                onScanSuccessCallback = successCallback;
+                scannerModal.show();
+            }
+
+            // Eventos do modal para iniciar e parar o scanner
+            scannerModalEl.addEventListener('shown.bs.modal', () => {
+                scannerStatusEl.textContent = 'Iniciando câmera...';
+                html5QrCode = new Html5Qrcode("reader");
+                const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+                html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
+                    .catch(err => {
+                        scannerStatusEl.innerHTML = `<div class="alert alert-danger">Erro ao iniciar o scanner: ${err}. Verifique as permissões da câmera.</div>`;
+                    });
+            });
+
+            scannerModalEl.addEventListener('hide.bs.modal', () => {
+                if (html5QrCode && html5QrCode.isScanning) {
+                    html5QrCode.stop();
+                }
+                onScanSuccessCallback = null; // Limpa o callback ao fechar
+            });
+
+            // --- Scanner para a tela de REGISTRAR AVARIA ---
+            const btnOpenScannerAvaria = document.getElementById('btn-open-scanner-modal');
+            if (btnOpenScannerAvaria) {
+                btnOpenScannerAvaria.addEventListener('click', () => {
+                    startScanner((decodedText) => {
+                        // Callback para a tela de avaria
+                        inputCodigo.value = decodedText;
+                        inputCodigo.dispatchEvent(new Event('blur')); // Dispara a busca do produto
+                    });
+                });
+            }
+
+            // --- Scanner para a tela de LISTA DE PRODUTOS ---
+            const btnOpenScannerLista = document.getElementById('btn-open-scanner-list-modal');
+            const pSearchInput = document.getElementById('p_search_input');
+            const pSearchForm = document.getElementById('form-lista-produtos');
+            if (btnOpenScannerLista && pSearchInput && pSearchForm) {
+                btnOpenScannerLista.addEventListener('click', () => {
+                    startScanner((decodedText) => {
+                        // Callback para a lista de produtos
+                        pSearchInput.value = decodedText;
+                        pSearchForm.submit(); // Submete o formulário de busca
+                    });
+                });
+            }
+        }
 
         // --- LÓGICA PARA A LISTA DE PRODUTOS (MODAIS) ---
         const productListTable = document.getElementById('product-list-table');
