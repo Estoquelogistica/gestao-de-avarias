@@ -97,7 +97,8 @@ $html = '
     <style>
         @page { margin: 25px; }
         body { font-family: "Helvetica", sans-serif; color: #333; }
-        .header { text-align: center; margin-bottom: 20px; }
+        .logo { width: 120px; margin-bottom: 10px; float: left; }
+        .header { text-align: center; margin-bottom: 20px; overflow: hidden; }
         .header h1 { margin: 0; font-size: 22px; color: #254c90; }
         .header p { margin: 5px 0; font-size: 12px; }
         table { width: 100%; border-collapse: collapse; font-size: 11px; }
@@ -132,6 +133,7 @@ $html = '
 </head>
 <body>
     <div class="header">
+        <img src="imagens/logo.png" alt="Logo" class="logo">
         <h1>Histórico de Avarias e Consumo</h1>
         <p>Período: ' . date('d/m/Y', strtotime($data_inicial)) . ' a ' . date('d/m/Y', strtotime($data_final)) . '</p>
     </div>
@@ -227,6 +229,8 @@ $html .= '</table></body></html>';
 // 5. Instancia e usa o Dompdf
 $options = new Options();
 $options->set('isHtml5ParserEnabled', true);
+$options->set('isRemoteEnabled', true); // Permite carregar imagens externas e locais
+$options->set('chroot', __DIR__); // Define o diretório raiz para acesso a arquivos locais
 $dompdf = new Dompdf($options);
 $dompdf->loadHtml($html);
 $dompdf->setPaper('A4', 'landscape');
