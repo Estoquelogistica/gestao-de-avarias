@@ -135,14 +135,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_product'])) {
     $endereco = trim($_POST['edit_endereco']);
     $tipo_embalagem = $_POST['edit_tipo_embalagem'];
     $lastro_camada = trim($_POST['edit_lastro_camada']);
+    $preco_venda = filter_input(INPUT_POST, 'edit_preco_venda', FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE); // Novo campo
 
     $barcodes = process_barcodes_from_input($_POST['edit_codigos_barras'] ?? '');
 
     if ($id && !empty($codigo_produto) && !empty($descricao) && $quantidade_estoque !== false) {
-        $sql_update = "UPDATE produtos SET codigo_produto = ?, descricao = ?, referencia = ?, quantidade_estoque = ?, endereco = ?, tipo_embalagem = ?, lastro_camada = ?, codigo_barras_1 = ?, codigo_barras_2 = ?, codigo_barras_3 = ?, codigo_barras_4 = ?, codigo_barras_5 = ?, codigo_barras_6 = ?, codigo_barras_7 = ?, codigo_barras_8 = ?, codigo_barras_9 = ?, codigo_barras_10 = ?, codigo_barras_11 = ? WHERE id = ?";
+        $sql_update = "UPDATE produtos SET codigo_produto = ?, descricao = ?, referencia = ?, quantidade_estoque = ?, endereco = ?, tipo_embalagem = ?, lastro_camada = ?, preco_venda = ?, codigo_barras_1 = ?, codigo_barras_2 = ?, codigo_barras_3 = ?, codigo_barras_4 = ?, codigo_barras_5 = ?, codigo_barras_6 = ?, codigo_barras_7 = ?, codigo_barras_8 = ?, codigo_barras_9 = ?, codigo_barras_10 = ?, codigo_barras_11 = ? WHERE id = ?";
         $stmt_update = $conn->prepare($sql_update);
-        $update_params = array_merge([$codigo_produto, $descricao, $referencia, $quantidade_estoque, $endereco, $tipo_embalagem, $lastro_camada], $barcodes, [$id]);
-        $stmt_update->bind_param("sssisssssssssssssssi", ...$update_params);
+        // Adiciona preco_venda aos parâmetros e 'd' aos tipos
+        $update_params = array_merge([$codigo_produto, $descricao, $referencia, $quantidade_estoque, $endereco, $tipo_embalagem, $lastro_camada, $preco_venda], $barcodes, [$id]);
+        $stmt_update->bind_param("sssisssdsisssssssssi", ...$update_params); // 'd' para double/float
         if ($stmt_update->execute()) {
             $_SESSION['lista_produto_sucesso'] = "Produto atualizado com sucesso!";
         } else {
@@ -1326,6 +1328,9 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                 <div class="col-md-4 mb-3"><label for="edit_tipo_embalagem" class="form-label">Embalagem</label><select class="form-select" id="edit_tipo_embalagem" name="edit_tipo_embalagem"><option value="Unidade">Unidade</option><option value="Caixa">Caixa</option><option value="Pacote">Pacote</option><option value="Fardo">Fardo</option><option value="Palete">Palete</option></select></div>
                 <div class="col-md-4 mb-3"><label for="edit_lastro_camada" class="form-label">Lastro x Camada</label><input type="text" class="form-control" id="edit_lastro_camada" name="edit_lastro_camada"></div>
             </div>
+            <div class="row">
+                <div class="col-md-4 mb-3"><label for="edit_preco_venda" class="form-label">Preço de Venda</label><input type="number" step="0.01" class="form-control" id="edit_preco_venda" name="edit_preco_venda" min="0"></div>
+            </div>
             <div class="mb-3"><label for="edit_endereco" class="form-label">Endereço</label><input type="text" class="form-control" id="edit_endereco" name="edit_endereco"></div>
             <div class="mb-3"><label for="edit_codigos_barras" class="form-label">Códigos de Barras (um por linha)</label>
                 <textarea class="form-control" id="edit_codigos_barras" name="edit_codigos_barras" rows="3" placeholder="Digite um código de barras por linha..."></textarea>
@@ -1874,6 +1879,7 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                     document.getElementById('edit_endereco').value = product.endereco;
                     document.getElementById('edit_tipo_embalagem').value = product.tipo_embalagem;
                     document.getElementById('edit_lastro_camada').value = product.lastro_camada;
+                    document.getElementById('edit_preco_venda').value = product.preco_venda; // Novo campo
 
                     // Junta todos os códigos de barras em uma string, um por linha
                     const barcodes = [];

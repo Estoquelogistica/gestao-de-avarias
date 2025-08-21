@@ -408,6 +408,12 @@ if (!empty($produto_ids_tendencia)) {
                 <input class="form-check-input report-toggle-checkbox" type="checkbox" role="switch" id="toggle-valores" data-target="#report-valores" checked>
                 <label class="form-check-label" for="toggle-valores">Análise de Custo (Valor)</label>
             </div>
+            <?php if ($nivel_usuario === 'admin'): ?>
+            <div class="form-check form-switch">
+                <input class="form-check-input report-toggle-checkbox" type="checkbox" role="switch" id="toggle-produtos-sem-preco" data-target="#report-produtos-sem-preco" checked>
+                <label class="form-check-label" for="toggle-produtos-sem-preco">Produtos sem Preço de Venda</label>
+            </div>
+            <?php endif; ?>
             <!-- Adicione novos checkboxes para futuros relatórios aqui -->
         </div>
     </div>
@@ -573,6 +579,56 @@ if (!empty($produto_ids_tendencia)) {
             <p class="text-muted mt-3">Nenhum valor encontrado para o período. Verifique se os produtos registrados possuem `preco_venda` cadastrado.</p>
         <?php endif; ?>
     </div>
+
+    <!-- Novo Relatório: Produtos sem Preço de Venda -->
+    <?php if ($nivel_usuario === 'admin'): ?>
+    <div class="content-section mt-4" id="report-produtos-sem-preco">
+        <div class="report-header">
+            <h3>Produtos sem Preço de Venda</h3>
+            <button class="btn btn-sm btn-outline-secondary btn-copy-report" data-container-id="report-produtos-sem-preco" data-feedback-id="feedback-produtos-sem-preco" title="Copiar relatório como imagem"><i class="fas fa-camera"></i></button>
+            <span class="copy-feedback" id="feedback-produtos-sem-preco">Copiado!</span>
+        </div>
+        <p class="text-muted">Lista de produtos que não possuem um `preco_venda` cadastrado ou ele é zero, e que foram registrados no período selecionado.</p>
+        <?php
+            $sql_produtos_sem_preco = "SELECT DISTINCT p.codigo_produto, p.descricao, p.referencia
+                                        FROM avarias a
+                                        JOIN produtos p ON a.produto_id = p.id
+                                        {$where_sql} AND (p.preco_venda IS NULL OR p.preco_venda = 0)
+                                        ORDER BY p.descricao ASC";
+            $stmt_produtos_sem_preco = $conn->prepare($sql_produtos_sem_preco);
+            $stmt_produtos_sem_preco->bind_param($types, ...$params);
+            $stmt_produtos_sem_preco->execute();
+            $result_produtos_sem_preco = $stmt_produtos_sem_preco->get_result();
+            $produtos_sem_preco = $result_produtos_sem_preco->fetch_all(MYSQLI_ASSOC);
+            $stmt_produtos_sem_preco->close();
+        ?>
+
+        <?php if (!empty($produtos_sem_preco)): ?>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Código do Produto</th>
+                            <th>Descrição</th>
+                            <th>Referência</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($produtos_sem_preco as $prod): ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($prod['codigo_produto']); ?></td>
+                                <td><?php echo htmlspecialchars($prod['descricao']); ?></td>
+                                <td><?php echo htmlspecialchars($prod['referencia'] ?? '-'); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php else: ?>
+            <p class="text-muted mt-3">Nenhum produto sem preço de venda encontrado para o período e filtros selecionados.</p>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
 
     <!-- Relatório de Tendência por Produto -->
     <div class="content-section mt-4" id="report-tendencia">
