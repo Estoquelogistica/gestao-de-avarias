@@ -134,7 +134,7 @@ $html = '
 <body>
     <div class="header">
         <img src="imagens/logo.png" alt="Logo" class="logo">
-        <h1>Histórico de Avarias e Consumo</h1>
+        <h1>Histórico de Avarias, Consumo e Recuperados</h1>
         <p>Período: ' . date('d/m/Y', strtotime($data_inicial)) . ' a ' . date('d/m/Y', strtotime($data_final)) . '</p>
     </div>
     <table>
@@ -235,5 +235,17 @@ $dompdf = new Dompdf($options);
 $dompdf->loadHtml($html);
 $dompdf->setPaper('A4', 'landscape');
 $dompdf->render();
-$dompdf->stream("historico_avarias_" . date('Y-m-d') . ".pdf", ["Attachment" => false]);
+
+// Define o nome do arquivo com base no filtro de tipo
+$filename_prefix = 'historico'; // Padrão
+if ($tipo_historico === 'avaria') {
+    $filename_prefix = 'avarias';
+} elseif ($tipo_historico === 'uso_e_consumo') {
+    $filename_prefix = 'consumo';
+} elseif ($tipo_historico === 'recuperados') {
+    $filename_prefix = 'recuperados';
+}
+$filename = $filename_prefix . '_' . date('Y-m-d') . '.pdf';
+
+$dompdf->stream($filename, ["Attachment" => false]);
 exit();

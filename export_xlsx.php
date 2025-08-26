@@ -181,9 +181,20 @@ $sheet->getColumnDimension('B')->setAutoSize(true);
 // Define o nome da planilha
 $sheet->setTitle('Histórico de Avarias');
 
+// Define o nome do arquivo com base no filtro de tipo
+$filename_prefix = 'historico'; // Padrão
+if ($tipo_historico === 'avaria') {
+    $filename_prefix = 'avarias';
+} elseif ($tipo_historico === 'uso_e_consumo') {
+    $filename_prefix = 'consumo';
+} elseif ($tipo_historico === 'recuperados') {
+    $filename_prefix = 'recuperados';
+}
+$filename = $filename_prefix . '_' . date('Y-m-d') . '.xlsx';
+
 // Envia o arquivo para o navegador
 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-header('Content-Disposition: attachment;filename="historico_avarias_'.date('Y-m-d').'.xlsx"');
+header('Content-Disposition: attachment;filename="' . $filename . '"');
 header('Cache-Control: max-age=0');
 
 $writer = new Xlsx($spreadsheet);
