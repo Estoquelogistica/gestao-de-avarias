@@ -1,4 +1,7 @@
 <?php
+// Aumenta o limite de memória para gerar PDFs grandes
+ini_set('memory_limit', '512M');
+
 // 1. Carrega as dependências
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/lib/dompdf/autoload.inc.php';
