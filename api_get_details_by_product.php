@@ -34,9 +34,15 @@ if ($mes > 0) {
 }
 
 if ($dia > 0 && $mes > 0) { // Dia só é válido se um mês for selecionado
-    $where_conditions[] = "DAY(a.data_ocorrencia) = ?";
-    $params[] = $dia;
-    $types .= "i";
+    if ($dia == 101) { // 1ª Quinzena
+        $where_conditions[] = "DAY(a.data_ocorrencia) <= 15";
+    } elseif ($dia == 102) { // 2ª Quinzena
+        $where_conditions[] = "DAY(a.data_ocorrencia) > 15";
+    } else { // Dia específico
+        $where_conditions[] = "DAY(a.data_ocorrencia) = ?";
+        $params[] = $dia;
+        $types .= "i";
+    }
 }
 
 if ($tipo !== 'todos') {

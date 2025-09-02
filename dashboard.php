@@ -325,13 +325,25 @@ if ($mes_selecionado > 0) {
     $kpi_titulo_recuperados = "Recuperados em " . $meses_nomes_filtro[$mes_selecionado] . "/" . $ano_selecionado;
 
     if ($dia_selecionado > 0) {
-        $where_conditions[] = "DAY(data_ocorrencia) = ?";
-        $params[] = $dia_selecionado;
-        $types .= "i";
-        $data_formatada = $dia_selecionado . "/" . $mes_selecionado . "/" . $ano_selecionado;
-        $kpi_titulo_avarias = "Avarias em " . $data_formatada;
-        $kpi_titulo_consumo = "Uso/Consumo em " . $data_formatada;
-        $kpi_titulo_recuperados = "Recuperados em " . $data_formatada;
+        if ($dia_selecionado == 101) { // 1ª Quinzena
+            $where_conditions[] = "DAY(data_ocorrencia) <= 15";
+            $kpi_titulo_avarias = "Avarias na 1ª Quinzena de " . $meses_nomes_filtro[$mes_selecionado] . "/" . $ano_selecionado;
+            $kpi_titulo_consumo = "Uso/Consumo na 1ª Quinzena de " . $meses_nomes_filtro[$mes_selecionado] . "/" . $ano_selecionado;
+            $kpi_titulo_recuperados = "Recuperados na 1ª Quinzena de " . $meses_nomes_filtro[$mes_selecionado] . "/" . $ano_selecionado;
+        } elseif ($dia_selecionado == 102) { // 2ª Quinzena
+            $where_conditions[] = "DAY(data_ocorrencia) > 15";
+            $kpi_titulo_avarias = "Avarias na 2ª Quinzena de " . $meses_nomes_filtro[$mes_selecionado] . "/" . $ano_selecionado;
+            $kpi_titulo_consumo = "Uso/Consumo na 2ª Quinzena de " . $meses_nomes_filtro[$mes_selecionado] . "/" . $ano_selecionado;
+            $kpi_titulo_recuperados = "Recuperados na 2ª Quinzena de " . $meses_nomes_filtro[$mes_selecionado] . "/" . $ano_selecionado;
+        } else { // Dia específico
+            $where_conditions[] = "DAY(data_ocorrencia) = ?";
+            $params[] = $dia_selecionado;
+            $types .= "i";
+            $data_formatada = $dia_selecionado . "/" . $mes_selecionado . "/" . $ano_selecionado;
+            $kpi_titulo_avarias = "Avarias em " . $data_formatada;
+            $kpi_titulo_consumo = "Uso/Consumo em " . $data_formatada;
+            $kpi_titulo_recuperados = "Recuperados em " . $data_formatada;
+        }
     }
 }
 
@@ -414,21 +426,55 @@ $sql_top10 = "SELECT a.produto_id, a.produto_nome, p.referencia, COUNT(a.id) as 
               GROUP BY a.produto_id, a.produto_nome, p.referencia
               ORDER BY total DESC
               LIMIT 10";
-if ($mes_selecionado > 0 && $dia_selecionado > 0) { // Visão Diária
-    $top10_titulo = "Top 10 {$grafico_titulo} ({$dia_selecionado}/{$mes_selecionado}/{$ano_selecionado})";
-    // Gráfico para um único dia
-    $labels_grafico = ["Dia $dia_selecionado"];
-    $dados_grafico = [0];
-    $sql_grafico = "SELECT COUNT(a.id) as total FROM avarias a {$data_where_sql}"; // Sem GROUP BY
-    $stmt_grafico = $conn->prepare($sql_grafico);
-    $stmt_grafico->bind_param($data_types, ...$data_params);
-    $stmt_grafico->execute();
-    $result_grafico = $stmt_grafico->get_result();
-    if ($result_grafico) {
-        $row = $result_grafico->fetch_assoc();
-        $dados_grafico[0] = intval($row['total'] ?? 0);
+if ($mes_selecionado > 0 && $dia_selecionado > 0) { // Visão Diária ou Quinzena
+    if ($dia_selecionado >= 101) { // Quinzenas
+        if ($dia_selecionado == 101) {
+            $top10_titulo = "Top 10 {$grafico_titulo} (1ª Quinzena de {$meses_nomes_filtro[$mes_selecionado]}/{$ano_selecionado})";
+            $labels_grafico = range(1, 15);
+            $dados_grafico = array_fill(0, 15, 0);
+        } else { // 102
+            $dias_no_mes = cal_days_in_month(CAL_GREGORIAN, $mes_selecionado, $ano_selecionado);
+            $top10_titulo = "Top 10 {$grafico_titulo} (2ª Quinzena de {$meses_nomes_filtro[$mes_selecionado]}/{$ano_selecionado})";
+            $labels_grafico = range(16, $dias_no_mes);
+            $dados_grafico = array_fill(0, count($labels_grafico), 0);
+        }
+
+        $sql_grafico = "SELECT DAY(a.data_ocorrencia) as dia, COUNT(a.id) as total FROM avarias a {$data_where_sql} GROUP BY DAY(a.data_ocorrencia) ORDER BY dia ASC";
+        $stmt_grafico = $conn->prepare($sql_grafico);
+        $stmt_grafico->bind_param($data_types, ...$data_params);
+        $stmt_grafico->execute();
+        $result_grafico = $stmt_grafico->get_result();
+        if ($result_grafico) {
+            while ($row = $result_grafico->fetch_assoc()) {
+                $dia = intval($row['dia']);
+                $index = -1;
+                if ($dia_selecionado == 101 && $dia >= 1 && $dia <= 15) {
+                    $index = $dia - 1;
+                } elseif ($dia_selecionado == 102 && $dia > 15) {
+                    $index = $dia - 16;
+                }
+                if ($index !== -1 && isset($dados_grafico[$index])) {
+                    $dados_grafico[$index] = intval($row['total']);
+                }
+            }
+        }
+        $stmt_grafico->close();
+    } else { // Visão Diária
+        $top10_titulo = "Top 10 {$grafico_titulo} ({$dia_selecionado}/{$mes_selecionado}/{$ano_selecionado})";
+        // Gráfico para um único dia
+        $labels_grafico = ["Dia $dia_selecionado"];
+        $dados_grafico = [0];
+        $sql_grafico = "SELECT COUNT(a.id) as total FROM avarias a {$data_where_sql}"; // Sem GROUP BY
+        $stmt_grafico = $conn->prepare($sql_grafico);
+        $stmt_grafico->bind_param($data_types, ...$data_params);
+        $stmt_grafico->execute();
+        $result_grafico = $stmt_grafico->get_result();
+        if ($result_grafico) {
+            $row = $result_grafico->fetch_assoc();
+            $dados_grafico[0] = intval($row['total'] ?? 0);
+        }
+        $stmt_grafico->close();
     }
-    $stmt_grafico->close();
 } elseif ($mes_selecionado > 0) { // Visão Mensal
     $top10_titulo = "Top 10 {$grafico_titulo} ({$meses_nomes_filtro[$mes_selecionado]}/{$ano_selecionado})";
     // Gráfico por dia
@@ -797,6 +843,8 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                             <option value="0" <?php if ($dia_selecionado == 0) echo 'selected'; ?>>Todos os Dias</option>
                             <?php
                             if ($mes_selecionado > 0) {
+                                echo '<option value="101" ' . ($dia_selecionado == 101 ? 'selected' : '') . '>1ª Quinzena</option>';
+                                echo '<option value="102" ' . ($dia_selecionado == 102 ? 'selected' : '') . '>2ª Quinzena</option>';
                                 $dias_no_mes = cal_days_in_month(CAL_GREGORIAN, $mes_selecionado, $ano_selecionado);
                                 for ($d = 1; $d <= $dias_no_mes; $d++) {
                                     echo "<option value=\"{$d}\" " . ($d == $dia_selecionado ? 'selected' : '') . ">{$d}</option>";
