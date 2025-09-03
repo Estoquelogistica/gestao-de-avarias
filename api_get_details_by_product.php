@@ -59,9 +59,12 @@ $sql = "SELECT
             a.lote,
             a.motivo,
             a.tipo,
-            u.nome as nome_usuario
+            u.nome as nome_usuario,
+            p.codigo_produto,
+            p.referencia
         FROM avarias a
         LEFT JOIN usuarios u ON a.registrado_por_id = u.id
+        LEFT JOIN produtos p ON a.produto_id = p.id
         {$where_sql}
         ORDER BY a.data_ocorrencia DESC";
 

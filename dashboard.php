@@ -2001,35 +2001,48 @@ $colunas_selecionadas_default = ['data_ocorrencia', 'codigo_produto', 'produto_n
                 }
 
                 if (items.length > 0) {
-                    let tableHtml = '<table class="table table-sm table-striped table-hover"><thead><tr><th>Data Ocorr.</th><th class="text-center">Qtd.</th><th>Lote</th><th>Motivo</th><th class="text-center">Tipo</th><th>Registrado Por</th></tr></thead><tbody>';
+                    let tableHtml = `
+                        <div class="table-responsive">
+                            <table class="table table-sm table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Data</th>
+                                        <th>Código</th>
+                                        <th>Referência</th>
+                                        <th>Qtd</th>
+                                        <th>Motivo</th>
+                                        <th>Tipo</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                    `;
                     items.forEach(item => {
+                        const dataOcorrencia = new Date(item.data_ocorrencia + 'T00:00:00').toLocaleDateString('pt-BR');
+                        
                         let tipoBadge = '<span class="badge bg-secondary">N/D</span>';
                         if (item.tipo === 'avaria') tipoBadge = '<span class="badge bg-danger">Avaria</span>';
                         if (item.tipo === 'uso_e_consumo') tipoBadge = '<span class="badge bg-success">Uso/Consumo</span>';
                         if (item.tipo === 'recuperados') tipoBadge = '<span class="badge bg-warning text-dark">Recuperados</span>';
 
-                        const dataFormatada = new Date(item.data_ocorrencia + 'T00:00:00').toLocaleDateString('pt-BR');
-
                         tableHtml += `
                             <tr>
-                                <td>${dataFormatada}</td>
-                                <td class="text-center">${item.quantidade}</td>
-                                <td>${item.lote || '-'}</td>
-                                <td class="text-truncate" style="max-width: 200px;" title="${item.motivo || ''}">${item.motivo || '-'}</td>
-                                <td class="text-center">${tipoBadge}</td>
-                                <td>${item.nome_usuario || 'N/A'}</td>
+                                <td class="text-nowrap">${dataOcorrencia}</td>
+                                <td>${item.codigo_produto || '-'}</td>
+                                <td>${item.referencia || '-'}</td>
+                                <td>${item.quantidade}</td>
+                                <td class="text-truncate" style="max-width: 150px;" title="${item.motivo || ''}">${item.motivo || '-'}</td>
+                                <td>${tipoBadge}</td>
                             </tr>
                         `;
                     });
-                    tableHtml += '</tbody></table>';
+                    tableHtml += '</tbody></table></div>';
                     modalBody.innerHTML = tableHtml;
                 } else {
-                    modalBody.innerHTML = '<p class="text-center p-4">Nenhum registro encontrado para este produto nos filtros selecionados.</p>';
+                    modalBody.innerHTML = '<p class="text-center">Nenhum registro detalhado encontrado para este item no período selecionado.</p>';
                 }
 
             } catch (error) {
-                console.error('Erro ao buscar detalhes do produto:', error);
-                modalBody.innerHTML = `<div class="alert alert-danger">Erro ao carregar os dados: ${error.message}</div>`;
+                modalBody.innerHTML = `<div class="alert alert-danger">Erro ao carregar detalhes: ${error.message}</div>`;
             }
         });
     }
